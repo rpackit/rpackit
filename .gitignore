@@ -1,0 +1,12 @@
+.Rhistory
+.RData
+.Ruserdata
+*.Rproj
+.Rproj.user/
+*.tar.gz
+*.Rcheck/
+dist/
+build/
+.codex/
+.agent-scratch/
+SESSION_TRANSCRIPT.md

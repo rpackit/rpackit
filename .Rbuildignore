@@ -1,0 +1,6 @@
+^\.github$
+^.*\.Rproj$
+^\.Rproj\.user$
+^README\.Rmd$
+^AGENTS\.md$
+^scripts$
