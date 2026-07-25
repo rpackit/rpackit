@@ -2,9 +2,9 @@
 
 **Pack and ship R apps.**
 
-`rpackit` is the R package and CLI layer of the rpackit project. It starts with
-Shiny applications and helps choose the correct output target: portable
-desktop, browser-only static web, or a dynamic server bundle.
+`rpackit` is the R package and desktop-tooling layer of the rpackit project.
+It starts with Shiny applications and helps choose the correct output target:
+portable desktop, browser-only static web, or a dynamic server bundle.
 
 ## Implemented
 
@@ -12,6 +12,9 @@ desktop, browser-only static web, or a dynamic server bundle.
 - `check_app()` recognizes common Shiny project layouts;
 - `plan_dependencies()` combines parsed R calls, `DESCRIPTION`, and
   `renv.lock` without executing application code;
+- `prepare_desktop()` builds atomic portable-R resource bundles;
+- `start_desktop_app()`, `desktop_app_status()`, and `stop_desktop_app()`
+  manage a real loopback-only Shiny subprocess lifecycle;
 - package, `renv`, system-call, Python, native-package, and large-data checks;
 - an evidence-backed target suitability matrix;
 - no application code execution during inspection.
@@ -68,16 +71,40 @@ bundle <- prepare_desktop(
   runtime_dir = "path/to/portable-r"
 )
 validate_desktop_bundle(bundle$path, verify_runtime = TRUE)
+
+process <- start_desktop_app(bundle$path)
+desktop_app_status(process)
+# Hand process$launch_url directly to an embedded webview; do not log it.
+stop_desktop_app(process)
 ```
 
 This copies the app and runtime, restores or installs required packages, writes
 the loopback-only `launcher.R`, and records an explicit `rpackit.json`
-manifest. Existing output is never overwritten.
+manifest. Existing output is never overwritten. The lifecycle manager starts
+the bundled `Rscript`, waits for both a versioned launcher event and a real
+HTTP response, and requests graceful shutdown through a private control file.
+If graceful shutdown times out, it asks `processx` to terminate the tracked
+process and its known tree, with a tracked-process kill as fallback.
+Status reports both the processx wrapper `pid` and the launcher-reported
+`runtime_pid`, which can differ for portable R on Windows. Readiness captures a
+create-time-aware handle for the observed runtime PID, and cleanup is confirmed
+only after both captured processes stop. Those observations do not independently
+prove other process-tree membership or descendant termination.
 
-This is a real, testable input to the desktop shell, but it is not yet a Tauri
-executable. Network-level token enforcement, Tauri project generation, and
-process lifecycle management remain the next desktop milestone. Static-web and
-server builders also remain milestone work.
+The `start`/`status`/`stop` sequence above is the currently implemented and
+end-to-end-tested lifecycle. It is not yet a Tauri shell or executable. The
+session token is currently a correlation/bootstrap value exported as
+`RPACKIT_SESSION_TOKEN`; it does not authenticate HTTP or WebSocket traffic.
+Only the process handle retains the token-bearing `launch_url`; status and
+print methods expose the token-free loopback URL.
+The manifest and returned status therefore explicitly report
+`network_token_enforced = FALSE`. Network enforcement, Tauri project
+generation, and native executable packaging remain desktop milestones.
+Static-web and server builders also remain milestone work.
+
+For a complete Windows walkthrough using the published portable R prototype,
+including SHA-256 verification and lifecycle cleanup, see the
+[`hello-shiny` quickstart](https://github.com/rpackit/rpackit-examples/tree/main/hello-shiny).
 
 ## License
 

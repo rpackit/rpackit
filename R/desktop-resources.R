@@ -243,54 +243,194 @@
 
 .desktop_launcher_lines <- function() {
   c(
-    "fail <- function(message) stop(message, call. = FALSE)",
-    "arguments <- commandArgs(trailingOnly = TRUE)",
-    "if (!length(arguments) || length(arguments) %% 2L != 0L) {",
-    "  fail('Usage: launcher.R --app <path> --port <port> --token <token>')",
+    "if (!requireNamespace('jsonlite', quietly = TRUE)) {",
+    "  cat(paste0(",
+    "    'RPACKIT_EVENT ',",
+    "    '{\"protocol_version\":\"1\",\"event\":\"error\",',",
+    "    '\"phase\":\"bootstrap\",',",
+    "    '\"message\":\"The bundled runtime does not contain jsonlite.\"}',",
+    "    '\\n'",
+    "  ))",
+    "  quit(save = 'no', status = 1L, runLast = FALSE)",
     "}",
-    "keys <- arguments[seq.int(1L, length(arguments), by = 2L)]",
-    "values <- arguments[seq.int(2L, length(arguments), by = 2L)]",
-    "required <- c('--app', '--port', '--token')",
-    "if (anyDuplicated(keys) || !setequal(keys, required)) {",
-    "  fail('Exactly one --app, --port, and --token argument is required.')",
+    "event_prefix <- 'RPACKIT_EVENT '",
+    "emit_event <- function(event, fields = list()) {",
+    "  payload <- c(",
+    "    list(",
+    "      protocol_version = '1',",
+    "      event = event,",
+    "      timestamp = format(Sys.time(), tz = 'UTC', usetz = TRUE)",
+    "    ),",
+    "    fields",
+    "  )",
+    "  encoded <- jsonlite::toJSON(",
+    "    payload,",
+    "    auto_unbox = TRUE,",
+    "    null = 'null'",
+    "  )",
+    "  cat(event_prefix, encoded, '\\n', sep = '')",
+    "  flush.console()",
     "}",
-    "options <- stats::setNames(values, keys)",
-    "app <- options[['--app']]",
-    "if (!dir.exists(app)) fail('The application directory does not exist.')",
-    "app <- normalizePath(app, winslash = '/', mustWork = TRUE)",
-    "layout_ok <- file.exists(file.path(app, 'app.R')) ||",
-    "  all(file.exists(file.path(app, c('ui.R', 'server.R'))))",
-    "if (!layout_ok) fail('The application is not a supported Shiny layout.')",
-    "port <- suppressWarnings(as.integer(options[['--port']]))",
-    "if (is.na(port) || port < 1L || port > 65535L) {",
-    "  fail('--port must be a whole number between 1 and 65535.')",
+    "launcher_error <- function(message, phase) {",
+    "  stop(",
+    "    structure(",
+    "      list(message = message, call = NULL, phase = phase),",
+    "      class = c('rpackit_launcher_error', 'error', 'condition')",
+    "    )",
+    "  )",
     "}",
-    "token <- options[['--token']]",
-    "if (is.na(token) || nchar(token, type = 'bytes') < 16L) {",
-    "  fail('--token must contain at least 16 bytes.')",
+    "main <- function() {",
+    "  arguments <- commandArgs(trailingOnly = TRUE)",
+    "  if (!length(arguments) || length(arguments) %% 2L != 0L) {",
+    "    launcher_error(",
+    "      paste0(",
+    "        'Usage: launcher.R --app <path> --port <port> ',",
+    "        '--token <token> [--control <path>]'",
+    "      ),",
+    "      'arguments'",
+    "    )",
+    "  }",
+    "  keys <- arguments[seq.int(1L, length(arguments), by = 2L)]",
+    "  values <- arguments[seq.int(2L, length(arguments), by = 2L)]",
+    "  required <- c('--app', '--port', '--token')",
+    "  allowed <- c(required, '--control')",
+    "  if (anyDuplicated(keys) || !all(required %in% keys) ||",
+    "      any(!keys %in% allowed)) {",
+    "    launcher_error(",
+    "      paste0(",
+    "        'Exactly one --app, --port, and --token argument is required; ',",
+    "        '--control may appear once.'",
+    "      ),",
+    "      'arguments'",
+    "    )",
+    "  }",
+    "  options <- stats::setNames(values, keys)",
+    "  app <- options[['--app']]",
+    "  if (!dir.exists(app)) {",
+    "    launcher_error('The application directory does not exist.', 'app')",
+    "  }",
+    "  app <- normalizePath(app, winslash = '/', mustWork = TRUE)",
+    "  layout_ok <- file.exists(file.path(app, 'app.R')) ||",
+    "    all(file.exists(file.path(app, c('ui.R', 'server.R'))))",
+    "  if (!layout_ok) {",
+    "    launcher_error(",
+    "      'The application is not a supported Shiny layout.',",
+    "      'app'",
+    "    )",
+    "  }",
+    "  port <- suppressWarnings(as.integer(options[['--port']]))",
+    "  if (is.na(port) || port < 1L || port > 65535L) {",
+    "    launcher_error(",
+    "      '--port must be a whole number between 1 and 65535.',",
+    "      'arguments'",
+    "    )",
+    "  }",
+    "  token <- options[['--token']]",
+    "  if (is.na(token) || nchar(token, type = 'bytes') < 16L ||",
+    "      nchar(token, type = 'bytes') > 256L ||",
+    "      !grepl('^[A-Za-z0-9._~-]+$', token)) {",
+    "    launcher_error(",
+    "      '--token must contain 16 to 256 URL-safe ASCII characters.',",
+    "      'arguments'",
+    "    )",
+    "  }",
+    "  control <- options[['--control']]",
+    "  if (!is.null(control)) {",
+    "    if (is.na(control) || !nzchar(control) || grepl('[\\r\\n]', control)) {",
+    "      launcher_error('--control must be a usable path.', 'arguments')",
+    "    }",
+    "    control_parent <- dirname(control)",
+    "    if (!dir.exists(control_parent)) {",
+    "      launcher_error(",
+    "        'The --control parent directory does not exist.',",
+    "        'arguments'",
+    "      )",
+    "    }",
+    "    control <- file.path(",
+    "      normalizePath(control_parent, winslash = '/', mustWork = TRUE),",
+    "      basename(control)",
+    "    )",
+    "    if (file.exists(control) || dir.exists(control)) {",
+    "      launcher_error(",
+    "        'The --control path must not exist at startup.',",
+    "        'arguments'",
+    "      )",
+    "    }",
+    "  }",
+    "  runtime_library <- file.path(R.home(), 'library')",
+    "  if (!dir.exists(runtime_library)) {",
+    "    launcher_error(",
+    "      'The bundled R library directory is missing.',",
+    "      'runtime'",
+    "    )",
+    "  }",
+    "  .libPaths(unique(c(runtime_library, .libPaths())))",
+    "  if (!requireNamespace('shiny', quietly = TRUE)) {",
+    "    launcher_error(",
+    "      \"The bundled runtime does not contain the 'shiny' package.\",",
+    "      'runtime'",
+    "    )",
+    "  }",
+    "  if (!is.null(control) &&",
+    "      !requireNamespace('later', quietly = TRUE)) {",
+    "    launcher_error(",
+    "      \"The bundled runtime does not contain the 'later' package.\",",
+    "      'runtime'",
+    "    )",
+    "  }",
+    "  Sys.setenv(RPACKIT_SESSION_TOKEN = token)",
+    "  if (!is.null(control)) {",
+    "    watch_control <- NULL",
+    "    watch_control <- function() {",
+    "      if (file.exists(control)) {",
+    "        emit_event('stopping', list(reason = 'control-file'))",
+    "        shiny::stopApp()",
+    "      } else {",
+    "        later::later(watch_control, delay = 0.1)",
+    "      }",
+    "      invisible(NULL)",
+    "    }",
+    "    later::later(watch_control, delay = 0.1)",
+    "  }",
+    "  emit_event(",
+    "    'starting',",
+    "    list(",
+    "      pid = Sys.getpid(),",
+    "      host = '127.0.0.1',",
+    "      port = port,",
+    "      token_enforced = FALSE,",
+    "      graceful_stop = !is.null(control)",
+    "    )",
+    "  )",
+    "  shiny::runApp(",
+    "    app,",
+    "    host = '127.0.0.1',",
+    "    port = port,",
+    "    launch.browser = FALSE,",
+    "    quiet = TRUE",
+    "  )",
+    "  emit_event('stopped', list(pid = Sys.getpid()))",
+    "  quit(save = 'no', status = 0L, runLast = FALSE)",
     "}",
-    "runtime_library <- file.path(R.home(), 'library')",
-    "if (!dir.exists(runtime_library)) {",
-    "  fail('The bundled R library directory is missing.')",
-    "}",
-    ".libPaths(unique(c(runtime_library, .libPaths())))",
-    "if (!requireNamespace('shiny', quietly = TRUE)) {",
-    "  fail(\"The bundled runtime does not contain the 'shiny' package.\")",
-    "}",
-    "Sys.setenv(RPACKIT_SESSION_TOKEN = token)",
-    "url <- sprintf(",
-    "  'http://127.0.0.1:%d/?rpackit_token=%s',",
-    "  port,",
-    "  utils::URLencode(token, reserved = TRUE)",
-    ")",
-    "cat(sprintf('RPACKIT_STARTING %s\\n', url))",
-    "flush.console()",
-    "shiny::runApp(",
-    "  app,",
-    "  host = '127.0.0.1',",
-    "  port = port,",
-    "  launch.browser = FALSE,",
-    "  quiet = TRUE",
+    "tryCatch(",
+    "  main(),",
+    "  error = function(error) {",
+    "    phase <- if (inherits(error, 'rpackit_launcher_error')) {",
+    "      error$phase",
+    "    } else {",
+    "      'runtime'",
+    "    }",
+    "    emit_event(",
+    "      'error',",
+    "      list(",
+    "        phase = phase,",
+    "        message = conditionMessage(error),",
+    "        pid = Sys.getpid()",
+    "      )",
+    "    )",
+    "    message('rpackit launcher error: ', conditionMessage(error))",
+    "    quit(save = 'no', status = 1L, runLast = FALSE)",
+    "  }",
     ")"
   )
 }
@@ -321,6 +461,8 @@
   paste(utils::capture.output(dput(value)), collapse = "\n")
 }
 
+.desktop_launcher_packages <- c("jsonlite", "later", "shiny")
+
 .desktop_install_dependencies <- function(resources, plan, repos) {
   runtime <- .desktop_runtime(file.path(resources, "R"))
   rscript <- file.path(runtime$path, runtime$rscript)
@@ -335,7 +477,7 @@
     mustWork = TRUE
   )
   packages <- sort(unique(c(
-    "shiny",
+    .desktop_launcher_packages,
     plan$dependencies$package[plan$dependencies$required]
   )))
   script <- tempfile("rpackit-install-", tmpdir = dirname(resources))
@@ -398,7 +540,7 @@
 .desktop_manifest <- function(app_name, check, runtime, dependency_plan,
                               installed, install_result) {
   packages <- sort(unique(c(
-    "shiny",
+    .desktop_launcher_packages,
     dependency_plan$dependencies$package[
       dependency_plan$dependencies$required
     ]
@@ -422,8 +564,18 @@
       host = "127.0.0.1",
       port = "required-argument",
       token = "required-argument",
+      control = "optional-argument",
+      protocol_version = "1",
+      event_stream = list(
+        format = "ndjson",
+        destination = "stdout",
+        prefix = "RPACKIT_EVENT "
+      ),
       network_token_enforced = FALSE,
-      readiness = "RPACKIT_STARTING then HTTP polling"
+      readiness = list(
+        strategy = "http-poll",
+        starting_event = "starting"
+      )
     ),
     dependencies = list(
       installed = installed,
@@ -459,11 +611,13 @@
 #' installed into the copied runtime. A `renv.lock` uses `renv::restore()`;
 #' otherwise the parsed dependency plan is installed from `repos`.
 #'
-#' The generated launcher accepts `--app`, `--port`, and `--token`, binds Shiny
-#' only to `127.0.0.1`, and exports the token to the application as
-#' `RPACKIT_SESSION_TOKEN`. Network-level token enforcement belongs to the
-#' desktop shell/proxy and is deliberately recorded as not yet implemented in
-#' `rpackit.json`; this function does not claim to produce a Tauri executable.
+#' The generated launcher accepts `--app`, `--port`, and `--token`, plus an
+#' optional private `--control` path used for graceful shutdown. It binds Shiny
+#' only to `127.0.0.1`, exports the token to the application as
+#' `RPACKIT_SESSION_TOKEN`, and emits versioned lifecycle events. Network-level
+#' token enforcement belongs to the desktop shell/proxy and is deliberately
+#' recorded as not yet implemented in `rpackit.json`; this function does not
+#' claim to produce a Tauri executable.
 #'
 #' Build inputs are never modified. Output is assembled in a sibling staging
 #' directory and renamed into place only after validation. Existing output is
@@ -658,6 +812,33 @@ prepare_desktop <- function(
   invisible(packages)
 }
 
+.desktop_validate_lifecycle_contract <- function(manifest) {
+  if (!identical(manifest$launcher$protocol_version, "1") ||
+      !identical(manifest$launcher$control, "optional-argument") ||
+      !identical(manifest$launcher$event_stream$format, "ndjson") ||
+      !identical(
+        manifest$launcher$event_stream$destination,
+        "stdout"
+      ) ||
+      !identical(
+        manifest$launcher$event_stream$prefix,
+        "RPACKIT_EVENT "
+      ) ||
+      !identical(
+        manifest$launcher$readiness$strategy,
+        "http-poll"
+      ) ||
+      !identical(
+        manifest$launcher$readiness$starting_event,
+        "starting"
+      )) {
+    cli::cli_abort(
+      "Desktop manifest does not provide lifecycle protocol version 1."
+    )
+  }
+  invisible(manifest)
+}
+
 #' Validate a prepared desktop resource bundle
 #'
 #' Checks the resource topology, manifest version, application layout, portable
@@ -709,11 +890,18 @@ validate_desktop_bundle <- function(bundle_dir, verify_runtime = FALSE,
   if (!identical(manifest$launcher$host, "127.0.0.1")) {
     cli::cli_abort("Desktop launcher host must be 127.0.0.1.")
   }
+  .desktop_validate_lifecycle_contract(manifest)
   if (!is.logical(manifest$launcher$network_token_enforced) ||
       length(manifest$launcher$network_token_enforced) != 1L ||
       is.na(manifest$launcher$network_token_enforced)) {
     cli::cli_abort(
       "Desktop manifest must explicitly record network token enforcement."
+    )
+  }
+  if (isTRUE(manifest$launcher$network_token_enforced)) {
+    cli::cli_abort(
+      "This resource-stage launcher does not enforce network tokens; ",
+      "{.field launcher.network_token_enforced} must be false."
     )
   }
   if (!is.logical(manifest$dependencies$installed) ||
@@ -723,8 +911,13 @@ validate_desktop_bundle <- function(bundle_dir, verify_runtime = FALSE,
       "Desktop manifest must explicitly record dependency installation."
     )
   }
+  launcher_path <- .desktop_safe_manifest_path(
+    resources,
+    manifest$launcher$script,
+    "launcher.script"
+  )
   launcher <- readLines(
-    file.path(resources, "launcher.R"),
+    launcher_path,
     warn = FALSE,
     encoding = "UTF-8"
   )

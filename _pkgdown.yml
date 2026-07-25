@@ -1,0 +1,22 @@
+url: https://rpackit.github.io/rpackit/
+
+template:
+  bootstrap: 5
+
+reference:
+- title: Inspect applications and environments
+  contents:
+  - check_app
+  - doctor
+- title: Plan dependencies
+  contents:
+  - plan_dependencies
+- title: Build and validate desktop bundles
+  contents:
+  - prepare_desktop
+  - validate_desktop_bundle
+- title: Run desktop applications
+  contents:
+  - start_desktop_app
+  - desktop_app_status
+  - stop_desktop_app

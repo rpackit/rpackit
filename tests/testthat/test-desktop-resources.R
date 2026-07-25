@@ -76,9 +76,20 @@ test_that("desktop manifest records runtime, app, and dependencies honestly", {
   expect_identical(manifest$schema_version, "1")
   expect_identical(manifest$app$type, "shiny-single-file")
   expect_identical(manifest$launcher$host, "127.0.0.1")
+  expect_identical(manifest$launcher$protocol_version, "1")
+  expect_identical(manifest$launcher$control, "optional-argument")
+  expect_identical(manifest$launcher$event_stream$format, "ndjson")
+  expect_identical(
+    manifest$launcher$event_stream$prefix,
+    "RPACKIT_EVENT "
+  )
+  expect_identical(manifest$launcher$readiness$strategy, "http-poll")
   expect_false(manifest$launcher$network_token_enforced)
   expect_false(manifest$dependencies$installed)
-  expect_true("shiny" %in% unlist(manifest$dependencies$packages))
+  expect_true(all(
+    c("jsonlite", "later", "shiny") %in%
+      unlist(manifest$dependencies$packages)
+  ))
   expect_match(manifest$runtime$rscript, "^R/")
 })
 
@@ -89,7 +100,10 @@ test_that("launcher requires all arguments and binds only to loopback", {
   expect_match(launcher, "--app")
   expect_match(launcher, "--port")
   expect_match(launcher, "--token")
+  expect_match(launcher, "--control")
   expect_match(launcher, "RPACKIT_SESSION_TOKEN")
+  expect_match(launcher, "RPACKIT_EVENT")
+  expect_match(launcher, "token_enforced = FALSE", fixed = TRUE)
   expect_match(launcher, "host = '127.0.0.1'", fixed = TRUE)
   expect_false(grepl("0.0.0.0", launcher, fixed = TRUE))
 })
@@ -244,5 +258,35 @@ test_that("bundle validation rejects dishonest manifest state", {
   expect_error(
     validate_desktop_bundle(output, quiet = TRUE),
     "app type does not match"
+  )
+
+  token_output <- tempfile("rpackit-token-contract-output-")
+  prepare_desktop(
+    app,
+    make_fake_runtime(),
+    output_dir = token_output,
+    install_packages = FALSE,
+    verify_runtime = FALSE,
+    quiet = TRUE
+  )
+  token_manifest_path <- file.path(
+    token_output,
+    "resources",
+    "rpackit.json"
+  )
+  token_manifest <- jsonlite::fromJSON(
+    token_manifest_path,
+    simplifyVector = FALSE
+  )
+  token_manifest$launcher$network_token_enforced <- TRUE
+  jsonlite::write_json(
+    token_manifest,
+    token_manifest_path,
+    auto_unbox = TRUE
+  )
+
+  expect_error(
+    validate_desktop_bundle(token_output, quiet = TRUE),
+    "does not enforce network tokens"
   )
 })

@@ -9,15 +9,19 @@ Description: Inspects R application projects and the local build environment
     from parsed R source, package metadata, and lockfiles, and recommends
     portable desktop, static web, and dynamic server targets.
 License: MIT + file LICENSE
-URL: https://github.com/rpackit/rpackit
+URL: https://rpackit.github.io/rpackit/,
+    https://github.com/rpackit/rpackit
 BugReports: https://github.com/rpackit/rpackit/issues
 Encoding: UTF-8
 Roxygen: list(markdown = TRUE)
 Imports:
     cli,
     jsonlite,
+    processx,
+    ps,
     stats
 Suggests:
+    shiny,
     testthat (>= 3.0.0)
 Config/testthat/edition: 3
 Config/roxygen2/version: 8.0.0
