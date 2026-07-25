@@ -21,29 +21,6 @@
   }), use.names = FALSE)
 }
 
-.extract_packages <- function(source) {
-  text <- paste(source, collapse = "\n")
-  call_pattern <- "(?:library|require)\\s*\\(\\s*[\"']?([A-Za-z][A-Za-z0-9.]*)"
-  namespace_pattern <- "\\b([A-Za-z][A-Za-z0-9.]*)\\s*:::{0,1}"
-  calls <- regmatches(text, gregexpr(call_pattern, text, perl = TRUE))[[1L]]
-  call_packages <- if (length(calls) && !identical(calls, character(0))) {
-    sub(call_pattern, "\\1", calls, perl = TRUE)
-  } else {
-    character()
-  }
-  namespaces <- regmatches(
-    text,
-    gregexpr(namespace_pattern, text, perl = TRUE)
-  )[[1L]]
-  namespace_packages <- if (length(namespaces) &&
-                            !identical(namespaces, character(0))) {
-    sub("\\s*:::{0,1}$", "", namespaces, perl = TRUE)
-  } else {
-    character()
-  }
-  sort(unique(c(call_packages, namespace_packages)))
-}
-
 .target_row <- function(target, status, reasons) {
   data.frame(
     target = target,
@@ -88,18 +65,27 @@ check_app <- function(app_dir, quiet = FALSE) {
     "unknown"
   }
   files <- .app_r_files(path)
+  dependency_plan <- plan_dependencies(path)
+  source_references <- dependency_plan$references[
+    dependency_plan$references$origin == "source",
+    ,
+    drop = FALSE
+  ]
+  packages <- sort(unique(source_references$package))
+  direct_dependencies <- dependency_plan$dependencies$package[
+    dependency_plan$dependencies$direct
+  ]
+  risk_packages <- sort(unique(c(packages, direct_dependencies)))
   source <- .read_app_source(files)
-  packages <- .extract_packages(source)
   source_text <- paste(source, collapse = "\n")
   has_system_calls <- grepl(
     "\\b(system|system2|shell)\\s*\\(",
     source_text,
     perl = TRUE
   )
-  has_reticulate <- "reticulate" %in% packages ||
-    grepl("\\breticulate\\s*::", source_text, perl = TRUE)
+  has_reticulate <- "reticulate" %in% risk_packages
   native_risk <- intersect(
-    packages,
+    risk_packages,
     c(
       "BiocManager", "DESeq2", "Rsamtools", "GenomicRanges", "rJava",
       "sf", "terra", "arrow", "duckdb", "torch", "tensorflow"
@@ -214,6 +200,7 @@ check_app <- function(app_dir, quiet = FALSE) {
         gsub("\\\\", "/", files)
       ),
       packages = packages,
+      dependency_plan = dependency_plan,
       findings = findings,
       targets = targets,
       recommendation = recommendation

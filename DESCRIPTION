@@ -1,13 +1,13 @@
 Package: rpackit
 Title: Check and Package R Applications
-Version: 0.1.0
+Version: 0.1.1
 Authors@R:
     person("Yaoxiang", "Li", email = "liyaoxiang@outlook.com",
            role = c("aut", "cre"))
 Description: Inspects R application projects and the local build environment
-    before packaging. The initial release recognizes common Shiny layouts,
-    discovers package and runtime requirements, and recommends portable
-    desktop, static web, and dynamic server targets.
+    before packaging. It recognizes common Shiny layouts, plans dependencies
+    from parsed R source, package metadata, and lockfiles, and recommends
+    portable desktop, static web, and dynamic server targets.
 License: MIT + file LICENSE
 URL: https://github.com/rpackit/rpackit
 BugReports: https://github.com/rpackit/rpackit/issues
@@ -15,6 +15,7 @@ Encoding: UTF-8
 Roxygen: list(markdown = TRUE)
 Imports:
     cli,
+    jsonlite,
     stats
 Suggests:
     testthat (>= 3.0.0)

@@ -38,6 +38,109 @@
   list(available = available, version = version, path = unname(path))
 }
 
+.package_manager_probe <- function() {
+  for (command in c("npm", "pnpm", "yarn")) {
+    result <- .tool_version(command, "--version")
+    if (isTRUE(result$available)) {
+      result$version <- paste(command, result$version)
+      return(result)
+    }
+  }
+  list(available = FALSE, version = NA_character_, path = NA_character_)
+}
+
+.windows_msvc_probe <- function() {
+  compiler <- .tool_version("cl", character())
+  if (isTRUE(compiler$available)) {
+    return(compiler)
+  }
+  program_files_x86 <- Sys.getenv("ProgramFiles(x86)", unset = "")
+  vswhere <- if (nzchar(program_files_x86)) {
+    file.path(
+      program_files_x86,
+      "Microsoft Visual Studio",
+      "Installer",
+      "vswhere.exe"
+    )
+  } else {
+    ""
+  }
+  if (!nzchar(vswhere) || !file.exists(vswhere)) {
+    return(list(
+      available = FALSE,
+      version = NA_character_,
+      path = NA_character_
+    ))
+  }
+  output <- tryCatch(
+    suppressWarnings(system2(
+      vswhere,
+      c(
+        "-latest",
+        "-products", "*",
+        "-requires", "Microsoft.VisualStudio.Component.VC.Tools.x86.x64",
+        "-property", "installationPath"
+      ),
+      stdout = TRUE,
+      stderr = TRUE
+    )),
+    error = function(error) character()
+  )
+  installation <- output[nzchar(trimws(output))]
+  available <- length(installation) > 0L &&
+    dir.exists(installation[[1L]])
+  list(
+    available = available,
+    version = if (available) basename(installation[[1L]]) else NA_character_,
+    path = if (available) installation[[1L]] else NA_character_
+  )
+}
+
+.windows_webview2_probe <- function() {
+  roots <- unique(c(
+    Sys.getenv("ProgramFiles(x86)", unset = ""),
+    Sys.getenv("ProgramFiles", unset = "")
+  ))
+  roots <- roots[nzchar(roots)]
+  candidates <- unlist(lapply(roots, function(root) {
+    Sys.glob(file.path(
+      root,
+      "Microsoft",
+      "EdgeWebView",
+      "Application",
+      "*",
+      "msedgewebview2.exe"
+    ))
+  }), use.names = FALSE)
+  if (!length(candidates)) {
+    return(list(
+      available = FALSE,
+      version = NA_character_,
+      path = NA_character_
+    ))
+  }
+  versions <- basename(dirname(candidates))
+  order_index <- order(versions, decreasing = TRUE)
+  list(
+    available = TRUE,
+    version = versions[order_index[[1L]]],
+    path = candidates[order_index[[1L]]]
+  )
+}
+
+.native_desktop_probe <- function(platform) {
+  switch(
+    platform,
+    windows = .windows_msvc_probe(),
+    macos = .tool_version("xcodebuild", "-version"),
+    linux = .tool_version(
+      "pkg-config",
+      c("--modversion", "webkit2gtk-4.1")
+    ),
+    list(available = FALSE, version = NA_character_, path = NA_character_)
+  )
+}
+
 #' Inspect the local rpackit build environment
 #'
 #' Reports the current platform and availability of tools used by R package,
@@ -62,14 +165,30 @@ doctor <- function(quiet = FALSE) {
                 purpose = "desktop frontend tooling"),
     Cargo = list(command = "cargo", args = "--version",
                  purpose = "Tauri desktop builds"),
+    TauriCLI = list(command = "cargo", args = c("tauri", "--version"),
+                    purpose = "Tauri desktop builds"),
+    PackageManager = list(probe = .package_manager_probe(),
+                          purpose = "Tauri frontend dependencies"),
+    NativeDesktop = list(probe = .native_desktop_probe(platform$platform),
+                         purpose = "platform-native desktop toolchain"),
     Docker = list(command = "docker", args = "--version",
                   purpose = "dynamic server bundles"),
     GitHubCLI = list(command = "gh", args = "--version",
                      purpose = "release workflows")
   )
+  if (platform$platform == "windows") {
+    specs$WebView2 <- list(
+      probe = .windows_webview2_probe(),
+      purpose = "Windows desktop webview"
+    )
+  }
   rows <- lapply(names(specs), function(name) {
     spec <- specs[[name]]
-    result <- .tool_version(spec$command, spec$args)
+    result <- if (!is.null(spec$probe)) {
+      spec$probe
+    } else {
+      .tool_version(spec$command, spec$args)
+    }
     data.frame(
       tool = name,
       available = result$available,
@@ -80,6 +199,16 @@ doctor <- function(quiet = FALSE) {
     )
   })
   tools <- do.call(rbind, rows)
+  desktop_requirements <- c(
+    "Node",
+    "Cargo",
+    "TauriCLI",
+    "PackageManager",
+    "NativeDesktop"
+  )
+  if (platform$platform == "windows") {
+    desktop_requirements <- c(desktop_requirements, "WebView2")
+  }
   capabilities <- data.frame(
     task = c(
       "app inspection",
@@ -90,7 +219,8 @@ doctor <- function(quiet = FALSE) {
     supported = c(
       TRUE,
       platform$platform == "windows",
-      all(tools$available[tools$tool %in% c("Node", "Cargo")]),
+      all(tools$available[tools$tool %in% desktop_requirements]) &&
+        all(desktop_requirements %in% tools$tool),
       tools$available[tools$tool == "Docker"]
     ),
     stringsAsFactors = FALSE
