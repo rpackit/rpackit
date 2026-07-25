@@ -550,7 +550,7 @@
   response <- tryCatch({
     writeBin(charToRaw(request), connection)
     flush(connection)
-    readLines(connection, warn = FALSE)
+    readLines(connection, n = 1L, warn = FALSE)
   }, error = function(error) character())
   length(response) >= 1L &&
     grepl("^HTTP/[0-9.]+ [23][0-9]{2}\\b", response[[1L]])
