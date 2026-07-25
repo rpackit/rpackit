@@ -103,7 +103,7 @@
       server = FALSE,
       blocking = TRUE,
       open = "r+b",
-      timeout = timeout
+      timeout = max(1L, as.integer(ceiling(timeout)))
     ),
     error = function(error) NULL
   ))
@@ -524,51 +524,36 @@
 }
 
 .desktop_http_ready <- function(port, token, timeout = 0.2) {
-  endpoint <- paste0(
-    "http://127.0.0.1:",
-    port,
-    "/?rpackit_token=",
-    utils::URLencode(token, reserved = TRUE)
-  )
-  proxy_names <- c("NO_PROXY", "no_proxy")
-  proxy_values <- Sys.getenv(
-    proxy_names,
-    unset = NA_character_,
-    names = TRUE
-  )
-  on.exit({
-    present <- !is.na(proxy_values)
-    if (any(present)) {
-      do.call(
-        Sys.setenv,
-        as.list(proxy_values[present])
-      )
-    }
-    if (any(!present)) {
-      Sys.unsetenv(proxy_names[!present])
-    }
-  }, add = TRUE)
-  do.call(
-    Sys.setenv,
-    as.list(stats::setNames(rep("*", length(proxy_names)), proxy_names))
-  )
-  headers <- suppressWarnings(tryCatch(
-    curlGetHeaders(
-      endpoint,
-      redirect = FALSE,
+  connection <- suppressWarnings(tryCatch(
+    socketConnection(
+      host = "127.0.0.1",
+      port = port,
+      server = FALSE,
+      blocking = TRUE,
+      open = "r+b",
       timeout = max(1L, as.integer(ceiling(timeout)))
     ),
     error = function(error) NULL
   ))
-  if (is.null(headers)) {
+  if (is.null(connection)) {
     return(FALSE)
   }
-  status <- attr(headers, "status", exact = TRUE)
-  is.numeric(status) &&
-    length(status) == 1L &&
-    !is.na(status) &&
-    status >= 200L &&
-    status < 400L
+  on.exit(close(connection), add = TRUE)
+  request <- paste0(
+    "GET /?rpackit_token=",
+    utils::URLencode(token, reserved = TRUE),
+    " HTTP/1.1\r\n",
+    "Host: 127.0.0.1:",
+    port,
+    "\r\nConnection: close\r\n\r\n"
+  )
+  response <- tryCatch({
+    writeBin(charToRaw(request), connection)
+    flush(connection)
+    readLines(connection, n = 1L, warn = FALSE)
+  }, error = function(error) character())
+  length(response) >= 1L &&
+    grepl("^HTTP/[0-9.]+ [23][0-9]{2}\\b", response[[1L]])
 }
 
 .desktop_wait_for_ready <- function(handle, timeout) {
