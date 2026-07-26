@@ -23,7 +23,7 @@ Imports:
     digest,
     jsonlite,
     openssl,
-    processx,
+    processx (>= 3.5.0),
     ps,
     stats,
     zip (>= 2.3.3)
