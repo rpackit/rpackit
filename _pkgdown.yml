@@ -13,6 +13,7 @@ reference:
   - plan_dependencies
 - title: Build and validate desktop bundles
   contents:
+  - resolve_portable_runtime
   - prepare_desktop
   - validate_desktop_bundle
 - title: Run desktop applications

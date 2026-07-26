@@ -6,19 +6,24 @@
 \usage{
 prepare_desktop(
   app_dir,
-  runtime_dir,
+  runtime_dir = NULL,
   output_dir = NULL,
   app_name = NULL,
   install_packages = TRUE,
   repos = getOption("repos"),
   verify_runtime = TRUE,
-  quiet = FALSE
+  quiet = FALSE,
+  r_version = NULL,
+  registry = getOption("rpackit.runtime_registry", .rpackit_runtime_registry),
+  cache_dir = NULL,
+  offline = FALSE
 )
 }
 \arguments{
 \item{app_dir}{Path to a supported Shiny application.}
 
-\item{runtime_dir}{Path to an extracted portable R home.}
+\item{runtime_dir}{Path to an extracted portable R home, or \code{NULL} to
+resolve a verified runtime for the current platform and architecture.}
 
 \item{output_dir}{New output directory. Defaults to
 \code{app_dir/dist/desktop-resources}.}
@@ -29,13 +34,27 @@ prepare_desktop(
 
 \item{repos}{Repository URLs used when installing packages.}
 
-\item{verify_runtime}{Execute the supplied \code{Rscript --version} before
-copying it.}
+\item{verify_runtime}{Execute the supplied \code{Rscript} and read its exact R
+version before copying it. An explicit runtime is still probed when
+\code{renv.lock} or DESCRIPTION constrains R, even when this is \code{FALSE}, because
+compatibility must be established before copying or installation.}
 
 \item{quiet}{Suppress the completion summary.}
+
+\item{r_version}{Exact portable R version used for automatic resolution.
+Defaults to the version recorded in \code{renv.lock}, when present, or the
+newest verified version.}
+
+\item{registry}{HTTPS URL or local path to a portable-R schema-v1 registry.}
+
+\item{cache_dir}{Portable runtime cache directory.}
+
+\item{offline}{Reuse an existing same-registry runtime cache entry without
+reading any registry or artifact.}
 }
 \value{
-An \code{rpackit_desktop_bundle} object.
+An \code{rpackit_desktop_bundle} object. Its \code{runtime} field records the
+explicit runtime path or the verified registry selection and provenance.
 }
 \description{
 \code{prepare_desktop()} creates the versioned resource contract consumed by the
@@ -55,6 +74,10 @@ runtime is copied into the bundle, so the generated resources do not depend
 on a system R installation at run time. By default, required packages are
 installed into the copied runtime. A \code{renv.lock} uses \code{renv::restore()};
 otherwise the parsed dependency plan is installed from \code{repos}.
+When \code{runtime_dir = NULL}, a verified runtime is resolved from the
+portable-R registry and reused from a SHA-256-keyed user cache when
+available. The lockfile R version and DESCRIPTION R constraint are checked
+against the selected runtime before copying it or installing packages.
 
 The generated launcher accepts \code{--app}, \code{--port}, and \code{--token}, plus an
 optional private \code{--control} path used for graceful shutdown. It binds Shiny

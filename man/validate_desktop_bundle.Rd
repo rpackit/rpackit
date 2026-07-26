@@ -9,7 +9,8 @@ validate_desktop_bundle(bundle_dir, verify_runtime = FALSE, quiet = FALSE)
 \arguments{
 \item{bundle_dir}{Prepared bundle directory containing \verb{resources/}.}
 
-\item{verify_runtime}{Execute the bundled \code{Rscript --version}.}
+\item{verify_runtime}{Execute the bundled \code{Rscript}, read \code{getRversion()},
+and require it to match the version recorded in the manifest when present.}
 
 \item{quiet}{Suppress the validation summary.}
 }

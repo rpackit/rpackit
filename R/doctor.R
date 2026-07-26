@@ -8,7 +8,7 @@
     system
   )
   machine <- tolower(Sys.info()[["machine"]])
-  architecture <- if (machine %in% c("amd64", "x86_64")) {
+  architecture <- if (machine %in% c("amd64", "x86_64", "x86-64", "x64")) {
     "x86_64"
   } else if (machine %in% c("arm64", "aarch64")) {
     "arm64"

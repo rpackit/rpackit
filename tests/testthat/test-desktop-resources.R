@@ -41,6 +41,13 @@ test_that("desktop resources are prepared atomically and validate", {
   )
 
   expect_s3_class(result, "rpackit_desktop_bundle")
+  expect_identical(
+    names(result)[seq_len(7L)],
+    c(
+      "path", "resources", "app_name", "app_type", "packages",
+      "dependencies_installed", "validation"
+    )
+  )
   expect_true(file.exists(file.path(output, "resources", "app", "app.R")))
   expect_true(
     file.exists(file.path(output, "resources", "app", "www", "style.css"))
@@ -52,6 +59,13 @@ test_that("desktop resources are prepared atomically and validate", {
   )
   validation <- validate_desktop_bundle(output, quiet = TRUE)
   expect_s3_class(validation, "rpackit_desktop_validation")
+  expect_identical(
+    names(validation)[seq_len(6L)],
+    c(
+      "valid", "path", "app_type", "runtime_platform",
+      "dependencies_installed", "network_token_enforced"
+    )
+  )
   expect_true(validation$valid)
   expect_false(validation$dependencies_installed)
   expect_false(validation$network_token_enforced)
@@ -91,6 +105,165 @@ test_that("desktop manifest records runtime, app, and dependencies honestly", {
       unlist(manifest$dependencies$packages)
   ))
   expect_match(manifest$runtime$rscript, "^R/")
+})
+
+test_that("bundle validation accepts legacy schema-v1 runtime metadata", {
+  app <- make_desktop_app()
+  output <- tempfile("rpackit-legacy-manifest-")
+  prepare_desktop(
+    app,
+    make_fake_runtime(),
+    output_dir = output,
+    install_packages = FALSE,
+    verify_runtime = FALSE,
+    quiet = TRUE
+  )
+  manifest_path <- file.path(output, "resources", "rpackit.json")
+  manifest <- jsonlite::fromJSON(manifest_path, simplifyVector = FALSE)
+  manifest$runtime$source <- NULL
+  manifest$runtime$r_version <- NULL
+  jsonlite::write_json(
+    manifest,
+    manifest_path,
+    auto_unbox = TRUE,
+    pretty = TRUE,
+    null = "null"
+  )
+
+  validation <- validate_desktop_bundle(output, quiet = TRUE)
+  expect_true(validation$valid)
+  expect_identical(validation$runtime_source, "explicit")
+  expect_null(validation$runtime_version)
+})
+
+test_that("registry manifests require an exact runtime version", {
+  app <- make_desktop_app()
+  output <- tempfile("rpackit-registry-version-manifest-")
+  prepare_desktop(
+    app,
+    make_fake_runtime(),
+    output_dir = output,
+    install_packages = FALSE,
+    verify_runtime = FALSE,
+    quiet = TRUE
+  )
+  manifest_path <- file.path(output, "resources", "rpackit.json")
+  manifest <- jsonlite::fromJSON(manifest_path, simplifyVector = FALSE)
+  manifest$runtime$source <- "registry"
+  manifest$runtime$r_version <- NULL
+  manifest$runtime$provenance <- list(
+    registry = "https://example.test/versions.json",
+    metadata_source = "https://example.test/runtime.json",
+    artifact_url = "https://example.test/runtime.zip",
+    sha256 = paste(rep("a", 64L), collapse = ""),
+    archive_format = "zip",
+    cache_hit = FALSE
+  )
+  jsonlite::write_json(
+    manifest,
+    manifest_path,
+    auto_unbox = TRUE,
+    pretty = TRUE,
+    null = "null"
+  )
+
+  expect_error(
+    validate_desktop_bundle(output, quiet = TRUE),
+    "must record runtime.r_version"
+  )
+})
+
+test_that("registry manifest provenance rejects unsafe sources without leaks", {
+  app <- make_desktop_app()
+  output <- tempfile("rpackit-unsafe-provenance-manifest-")
+  prepare_desktop(
+    app,
+    make_fake_runtime(),
+    output_dir = output,
+    install_packages = FALSE,
+    verify_runtime = FALSE,
+    quiet = TRUE
+  )
+  manifest_path <- file.path(output, "resources", "rpackit.json")
+  manifest <- jsonlite::fromJSON(manifest_path, simplifyVector = FALSE)
+  manifest$runtime$source <- "registry"
+  manifest$runtime$r_version <- "4.6.1"
+  valid_provenance <- list(
+    registry = "https://example.test/versions.json",
+    metadata_source = "https://example.test/runtime.json",
+    artifact_url = "https://example.test/runtime.zip",
+    sha256 = paste(rep("a", 64L), collapse = ""),
+    archive_format = "zip",
+    cache_hit = FALSE
+  )
+  unsafe <- list(
+    registry = "http://user:secret@example.test/versions.json?token=private",
+    metadata_source = "\\\\server\\share\\runtime.json",
+    artifact_url = "https://user:secret@example.test/runtime.zip?token=private"
+  )
+
+  for (field in names(unsafe)) {
+    manifest$runtime$provenance <- valid_provenance
+    manifest$runtime$provenance[[field]] <- unsafe[[field]]
+    jsonlite::write_json(
+      manifest,
+      manifest_path,
+      auto_unbox = TRUE,
+      pretty = TRUE,
+      null = "null"
+    )
+    condition <- tryCatch(
+      validate_desktop_bundle(output, quiet = TRUE),
+      error = identity
+    )
+    expect_s3_class(condition, "error")
+    expect_match(
+      conditionMessage(condition),
+      "invalid registry runtime provenance"
+    )
+    expect_false(grepl(
+      "user|secret|token|private",
+      conditionMessage(condition),
+      ignore.case = TRUE
+    ))
+  }
+})
+
+test_that("runtime verification matches the manifest version", {
+  app <- make_desktop_app()
+  output <- tempfile("rpackit-runtime-version-validation-")
+  prepare_desktop(
+    app,
+    make_fake_runtime(),
+    output_dir = output,
+    install_packages = FALSE,
+    verify_runtime = FALSE,
+    quiet = TRUE
+  )
+  manifest_path <- file.path(output, "resources", "rpackit.json")
+  manifest <- jsonlite::fromJSON(manifest_path, simplifyVector = FALSE)
+  manifest$runtime$r_version <- "4.6.1"
+  jsonlite::write_json(
+    manifest,
+    manifest_path,
+    auto_unbox = TRUE,
+    pretty = TRUE,
+    null = "null"
+  )
+  local_mocked_bindings(
+    .desktop_runtime_version = function(runtime) "4.5.0",
+    .package = "rpackit"
+  )
+
+  expect_error(
+    validate_desktop_bundle(
+      output,
+      verify_runtime = TRUE,
+      quiet = TRUE
+    ),
+    "reports version 4.5.0.*records 4.6.1",
+    class = "rpackit_runtime_version_mismatch_error"
+  )
 })
 
 test_that("launcher requires all arguments and binds only to loopback", {

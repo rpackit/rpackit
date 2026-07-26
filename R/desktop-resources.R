@@ -50,7 +50,10 @@
   }
   path <- normalizePath(runtime_dir, winslash = "/", mustWork = TRUE)
   candidates <- c("bin/Rscript.exe", "bin/Rscript")
-  found <- candidates[file.exists(file.path(path, candidates))]
+  candidate_paths <- file.path(path, candidates)
+  found <- candidates[
+    file.exists(candidate_paths) & !dir.exists(candidate_paths)
+  ]
   if (length(found) != 1L) {
     cli::cli_abort(
       "{.arg runtime_dir} must contain exactly one of ",
@@ -140,14 +143,105 @@
   unname(output)
 }
 
-.desktop_verify_runtime <- function(runtime) {
+.desktop_runtime_version <- function(runtime) {
   rscript <- file.path(runtime$path, runtime$rscript)
-  .desktop_run_rscript(
+  script <- tempfile("rpackit-runtime-version-", fileext = ".R")
+  on.exit(unlink(script, force = TRUE), add = TRUE)
+  writeLines(
+    "cat(as.character(getRversion()), '\\n', sep = '')",
+    script,
+    useBytes = TRUE
+  )
+  output <- .desktop_run_rscript(
     rscript,
-    "--version",
+    c("--vanilla", shQuote(script)),
     "Portable R runtime verification"
   )
+  output <- trimws(output)
+  versions <- output[grepl(
+    "^[0-9]+\\.[0-9]+\\.[0-9]+$",
+    output
+  )]
+  if (length(versions) != 1L) {
+    cli::cli_abort(
+      "Portable R runtime did not report one exact R version.",
+      class = "rpackit_runtime_version_error"
+    )
+  }
+  versions[[1L]]
+}
+
+.desktop_verify_runtime <- function(runtime) {
+  .desktop_runtime_version(runtime)
   invisible(runtime)
+}
+
+.desktop_version_comparison <- function(version, operator, required) {
+  version <- numeric_version(version)
+  required <- numeric_version(required)
+  switch(operator,
+    ">=" = version >= required,
+    ">" = version > required,
+    "<=" = version <= required,
+    "<" = version < required,
+    "=" = version == required,
+    "==" = version == required,
+    FALSE
+  )
+}
+
+.desktop_validate_runtime_plan <- function(runtime_version, plan) {
+  runtime_version <- .portable_version(runtime_version, "runtime version")
+  locked <- plan$locked_r_version
+  if (!is.null(locked) &&
+    is.character(locked) &&
+    length(locked) == 1L &&
+    !is.na(locked)) {
+    locked <- .portable_version(locked, "renv.lock R version")
+    if (!identical(runtime_version, locked)) {
+      cli::cli_abort(
+        c(
+          "Portable R {runtime_version} does not match the renv.lock R ",
+          "version {locked}.",
+          "i" = "Resolve R {locked} or update the lockfile intentionally."
+        ),
+        class = "rpackit_runtime_version_mismatch_error"
+      )
+    }
+  }
+  constraint <- plan$r_constraint
+  if (!is.null(constraint) &&
+    is.character(constraint) &&
+    length(constraint) == 1L &&
+    !is.na(constraint)) {
+    match <- regexec(
+      "^\\s*(>=|<=|==|=|>|<)\\s*([0-9]+(?:\\.[0-9]+){1,2})\\s*$",
+      constraint,
+      perl = TRUE
+    )
+    pieces <- regmatches(constraint, match)[[1L]]
+    if (length(pieces) != 3L) {
+      cli::cli_abort(
+        "Cannot interpret DESCRIPTION R constraint {.val {constraint}}.",
+        class = "rpackit_runtime_version_constraint_error"
+      )
+    }
+    if (!.desktop_version_comparison(
+      runtime_version,
+      pieces[[2L]],
+      pieces[[3L]]
+    )) {
+      cli::cli_abort(
+        c(
+          "Portable R {runtime_version} does not satisfy DESCRIPTION ",
+          "requirement R ({constraint}).",
+          "i" = "Choose a compatible portable R version."
+        ),
+        class = "rpackit_runtime_version_mismatch_error"
+      )
+    }
+  }
+  invisible(runtime_version)
 }
 
 .desktop_app_excluded <- function(relative) {
@@ -538,7 +632,8 @@
 }
 
 .desktop_manifest <- function(app_name, check, runtime, dependency_plan,
-                              installed, install_result) {
+                              installed, install_result, runtime_version,
+                              runtime_provenance = NULL) {
   packages <- sort(unique(c(
     .desktop_launcher_packages,
     dependency_plan$dependencies$package[
@@ -553,12 +648,25 @@
       type = check$app_type,
       path = "app"
     ),
-    runtime = list(
+    runtime = c(list(
       path = "R",
       rscript = paste0("R/", gsub("\\\\", "/", runtime$rscript)),
       library = paste0("R/", gsub("\\\\", "/", runtime$library)),
-      platform = runtime$platform
-    ),
+      platform = runtime$platform,
+      r_version = if (is.na(runtime_version)) NULL else runtime_version,
+      source = if (is.null(runtime_provenance)) "explicit" else "registry"
+    ), if (is.null(runtime_provenance)) {
+      list()
+    } else {
+      list(provenance = list(
+        registry = runtime_provenance$registry,
+        metadata_source = runtime_provenance$metadata_source,
+        artifact_url = runtime_provenance$artifact_url,
+        sha256 = runtime_provenance$sha256,
+        archive_format = runtime_provenance$archive_format,
+        cache_hit = runtime_provenance$cache_hit
+      ))
+    }),
     launcher = list(
       script = "launcher.R",
       host = "127.0.0.1",
@@ -610,6 +718,10 @@
 #' on a system R installation at run time. By default, required packages are
 #' installed into the copied runtime. A `renv.lock` uses `renv::restore()`;
 #' otherwise the parsed dependency plan is installed from `repos`.
+#' When `runtime_dir = NULL`, a verified runtime is resolved from the
+#' portable-R registry and reused from a SHA-256-keyed user cache when
+#' available. The lockfile R version and DESCRIPTION R constraint are checked
+#' against the selected runtime before copying it or installing packages.
 #'
 #' The generated launcher accepts `--app`, `--port`, and `--token`, plus an
 #' optional private `--control` path used for graceful shutdown. It binds Shiny
@@ -624,26 +736,44 @@
 #' never overwritten.
 #'
 #' @param app_dir Path to a supported Shiny application.
-#' @param runtime_dir Path to an extracted portable R home.
+#' @param runtime_dir Path to an extracted portable R home, or `NULL` to
+#'   resolve a verified runtime for the current platform and architecture.
 #' @param output_dir New output directory. Defaults to
 #'   `app_dir/dist/desktop-resources`.
 #' @param app_name Human-readable application name.
 #' @param install_packages Install required packages into the copied runtime.
 #' @param repos Repository URLs used when installing packages.
-#' @param verify_runtime Execute the supplied `Rscript --version` before
-#'   copying it.
+#' @param verify_runtime Execute the supplied `Rscript` and read its exact R
+#'   version before copying it. An explicit runtime is still probed when
+#'   `renv.lock` or DESCRIPTION constrains R, even when this is `FALSE`, because
+#'   compatibility must be established before copying or installation.
 #' @param quiet Suppress the completion summary.
-#' @return An `rpackit_desktop_bundle` object.
+#' @param r_version Exact portable R version used for automatic resolution.
+#'   Defaults to the version recorded in `renv.lock`, when present, or the
+#'   newest verified version.
+#' @param registry HTTPS URL or local path to a portable-R schema-v1 registry.
+#' @param cache_dir Portable runtime cache directory.
+#' @param offline Reuse an existing same-registry runtime cache entry without
+#'   reading any registry or artifact.
+#' @return An `rpackit_desktop_bundle` object. Its `runtime` field records the
+#'   explicit runtime path or the verified registry selection and provenance.
 #' @export
 prepare_desktop <- function(
   app_dir,
-  runtime_dir,
+  runtime_dir = NULL,
   output_dir = NULL,
   app_name = NULL,
   install_packages = TRUE,
   repos = getOption("repos"),
   verify_runtime = TRUE,
-  quiet = FALSE
+  quiet = FALSE,
+  r_version = NULL,
+  registry = getOption(
+    "rpackit.runtime_registry",
+    .rpackit_runtime_registry
+  ),
+  cache_dir = NULL,
+  offline = FALSE
 ) {
   check <- check_app(app_dir, quiet = TRUE)
   desktop_status <- check$targets$status[
@@ -669,21 +799,85 @@ prepare_desktop <- function(
   for (value in list(
     install_packages = install_packages,
     verify_runtime = verify_runtime,
-    quiet = quiet
+    quiet = quiet,
+    offline = offline
   )) {
     if (!is.logical(value) || length(value) != 1L || is.na(value)) {
       cli::cli_abort(
-        "{.arg install_packages}, {.arg verify_runtime}, and {.arg quiet} ",
-        "must each be TRUE or FALSE."
+        "{.arg install_packages}, {.arg verify_runtime}, {.arg quiet}, and ",
+        "{.arg offline} must each be TRUE or FALSE."
       )
     }
   }
-  runtime <- .desktop_runtime(runtime_dir)
-  if (isTRUE(verify_runtime)) {
-    .desktop_verify_runtime(runtime)
-  }
   repos <- .desktop_repositories(repos)
   output <- .desktop_output_path(output_dir, app_path)
+  resolved_runtime <- NULL
+  if (is.null(runtime_dir)) {
+    requested_version <- r_version
+    if (is.null(requested_version) &&
+      !is.null(check$dependency_plan$locked_r_version) &&
+      is.character(check$dependency_plan$locked_r_version) &&
+      length(check$dependency_plan$locked_r_version) == 1L &&
+      !is.na(check$dependency_plan$locked_r_version)) {
+      requested_version <- check$dependency_plan$locked_r_version
+    }
+    if (!is.null(requested_version)) {
+      .desktop_validate_runtime_plan(
+        requested_version,
+        check$dependency_plan
+      )
+    }
+    resolved_runtime <- resolve_portable_runtime(
+      r_version = requested_version,
+      registry = registry,
+      cache_dir = cache_dir,
+      offline = offline,
+      quiet = quiet
+    )
+    runtime_dir <- resolved_runtime$path
+  } else if (!is.null(r_version)) {
+    cli::cli_abort(
+      "{.arg r_version} can only be used when {.arg runtime_dir} is NULL."
+    )
+  }
+  runtime <- .desktop_runtime(runtime_dir)
+  has_version_requirement <- (
+    !is.null(check$dependency_plan$locked_r_version) &&
+      !is.na(check$dependency_plan$locked_r_version)
+  ) || (
+    !is.null(check$dependency_plan$r_constraint) &&
+      !is.na(check$dependency_plan$r_constraint)
+  )
+  observed_runtime_version <- if (isTRUE(verify_runtime) ||
+    (is.null(resolved_runtime) &&
+      has_version_requirement)) {
+    .desktop_runtime_version(runtime)
+  } else if (!is.null(resolved_runtime)) {
+    resolved_runtime$r_version
+  } else {
+    NA_character_
+  }
+  if (!is.null(resolved_runtime) &&
+    !is.na(observed_runtime_version) &&
+    !identical(
+      observed_runtime_version,
+      resolved_runtime$r_version
+    )) {
+    cli::cli_abort(
+      c(
+        "Verified runtime metadata records R {resolved_runtime$r_version}, ",
+        "but the extracted runtime reports R {observed_runtime_version}.",
+        "i" = "The cached runtime must not be used."
+      ),
+      class = "rpackit_runtime_version_mismatch_error"
+    )
+  }
+  if (has_version_requirement) {
+    .desktop_validate_runtime_plan(
+      observed_runtime_version,
+      check$dependency_plan
+    )
+  }
   stage <- tempfile(".rpackit-stage-", tmpdir = dirname(output))
   if (!dir.create(stage, recursive = FALSE, showWarnings = FALSE)) {
     cli::cli_abort("Cannot create staging directory for {.path {output}}.")
@@ -726,7 +920,9 @@ prepare_desktop <- function(
     runtime = copied_runtime,
     dependency_plan = check$dependency_plan,
     installed = isTRUE(install_packages),
-    install_result = install_result
+    install_result = install_result,
+    runtime_version = observed_runtime_version,
+    runtime_provenance = resolved_runtime
   )
   .desktop_write_json(
     manifest,
@@ -737,18 +933,34 @@ prepare_desktop <- function(
     cli::cli_abort("Cannot move completed bundle to {.path {output}}.")
   }
   completed <- TRUE
+  normalized_output <- normalizePath(
+    output,
+    winslash = "/",
+    mustWork = TRUE
+  )
+  validation$path <- normalized_output
   result <- structure(
     list(
-      path = normalizePath(output, winslash = "/", mustWork = TRUE),
+      path = normalized_output,
       resources = file.path(
-        normalizePath(output, winslash = "/", mustWork = TRUE),
+        normalized_output,
         "resources"
       ),
       app_name = app_name,
       app_type = check$app_type,
       packages = manifest$dependencies$packages,
       dependencies_installed = isTRUE(install_packages),
-      validation = validation
+      validation = validation,
+      runtime = if (is.null(resolved_runtime)) {
+        list(
+          source = "explicit",
+          path = runtime$path,
+          r_version = observed_runtime_version,
+          platform = runtime$platform
+        )
+      } else {
+        resolved_runtime
+      }
     ),
     class = "rpackit_desktop_bundle"
   )
@@ -846,7 +1058,8 @@ prepare_desktop <- function(
 #' executed.
 #'
 #' @param bundle_dir Prepared bundle directory containing `resources/`.
-#' @param verify_runtime Execute the bundled `Rscript --version`.
+#' @param verify_runtime Execute the bundled `Rscript`, read `getRversion()`,
+#'   and require it to match the version recorded in the manifest when present.
 #' @param quiet Suppress the validation summary.
 #' @return An `rpackit_desktop_validation` object.
 #' @export
@@ -954,7 +1167,7 @@ validate_desktop_bundle <- function(bundle_dir, verify_runtime = FALSE,
     manifest$runtime$library,
     "runtime.library"
   )
-  if (!file.exists(rscript) || !dir.exists(library)) {
+  if (!file.exists(rscript) || dir.exists(rscript) || !dir.exists(library)) {
     cli::cli_abort("Desktop bundle contains an incomplete portable R runtime.")
   }
   runtime_path <- .desktop_safe_manifest_path(
@@ -968,8 +1181,92 @@ validate_desktop_bundle <- function(bundle_dir, verify_runtime = FALSE,
       "Desktop manifest runtime platform does not match bundled files."
     )
   }
+  runtime_source <- manifest$runtime$source
+  if (is.null(runtime_source)) {
+    runtime_source <- "explicit"
+  }
+  if (!identical(runtime_source, "explicit") &&
+    !identical(runtime_source, "registry")) {
+    cli::cli_abort(
+      "Desktop manifest must identify an explicit or registry runtime source."
+    )
+  }
+  if (!is.null(manifest$runtime$r_version)) {
+    .portable_version(
+      manifest$runtime$r_version,
+      "runtime.r_version"
+    )
+  }
+  if (identical(runtime_source, "registry")) {
+    if (is.null(manifest$runtime$r_version)) {
+      cli::cli_abort(
+        "A registry runtime manifest must record runtime.r_version."
+      )
+    }
+    provenance <- manifest$runtime$provenance
+    required_provenance <- c(
+      "registry", "metadata_source", "artifact_url", "sha256",
+      "archive_format", "cache_hit"
+    )
+    safe_provenance <- if (is.list(provenance)) {
+      tryCatch(
+        {
+          .portable_validate_source_reference(
+            provenance$registry,
+            "runtime.provenance.registry"
+          )
+          .portable_validate_source_reference(
+            provenance$metadata_source,
+            "runtime.provenance.metadata_source"
+          )
+          .portable_validate_source_reference(
+            provenance$artifact_url,
+            "runtime.provenance.artifact_url"
+          )
+          !.portable_is_https(provenance$registry) ||
+            (
+              .portable_is_https(provenance$metadata_source) &&
+                .portable_is_https(provenance$artifact_url)
+            )
+        },
+        error = function(error) FALSE
+      )
+    } else {
+      FALSE
+    }
+    if (!is.list(provenance) ||
+      any(vapply(required_provenance[-length(required_provenance)], function(field) {
+        !is.character(provenance[[field]]) ||
+          length(provenance[[field]]) != 1L ||
+          is.na(provenance[[field]]) ||
+          !nzchar(provenance[[field]])
+      }, logical(1))) ||
+      !is.logical(provenance$cache_hit) ||
+      length(provenance$cache_hit) != 1L ||
+      is.na(provenance$cache_hit) ||
+      !grepl("^[a-f0-9]{64}$", provenance$sha256) ||
+      !identical(provenance$archive_format, "zip") ||
+      !isTRUE(safe_provenance)) {
+      cli::cli_abort(
+        "Desktop manifest contains invalid registry runtime provenance."
+      )
+    }
+  }
   if (isTRUE(verify_runtime)) {
-    .desktop_verify_runtime(runtime)
+    observed_runtime_version <- .desktop_runtime_version(runtime)
+    if (!is.null(manifest$runtime$r_version) &&
+      !identical(
+        observed_runtime_version,
+        manifest$runtime$r_version
+      )) {
+      cli::cli_abort(
+        c(
+          "Bundled R reports version {observed_runtime_version}, but the ",
+          "desktop manifest records {manifest$runtime$r_version}."
+        ),
+        class = "rpackit_runtime_version_mismatch_error"
+      )
+    }
     if (isTRUE(manifest$dependencies$installed)) {
       .desktop_verify_packages(
         rscript,
@@ -987,7 +1284,10 @@ validate_desktop_bundle <- function(bundle_dir, verify_runtime = FALSE,
       dependencies_installed = isTRUE(manifest$dependencies$installed),
       network_token_enforced = isTRUE(
         manifest$launcher$network_token_enforced
-      )
+      ),
+      runtime_version = manifest$runtime$r_version,
+      runtime_source = runtime_source,
+      runtime_provenance = manifest$runtime$provenance
     ),
     class = "rpackit_desktop_validation"
   )
@@ -1006,6 +1306,14 @@ print.rpackit_desktop_bundle <- function(x, ...) {
     "Dependencies installed: ",
     "{if (x$dependencies_installed) 'yes' else 'no'}"
   )
+  if (inherits(x$runtime, "rpackit_portable_runtime")) {
+    cli::cli_text(
+      "Runtime: R {x$runtime$r_version} ",
+      "({x$runtime$platform}/{x$runtime$arch}, verified registry artifact)"
+    )
+  } else {
+    cli::cli_text("Runtime: explicit path")
+  }
   cli::cli_text(
     "Tauri executable: not built; pass these resources to the desktop shell."
   )
