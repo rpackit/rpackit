@@ -238,6 +238,20 @@
   invisible(TRUE)
 }
 
+.desktop_reset_windows_acl <- function(path, icacls) {
+  result <- processx::run(
+    icacls,
+    c(path, "/reset", "/q"),
+    error_on_status = FALSE,
+    echo = FALSE,
+    windows_hide_window = TRUE
+  )
+  if (!identical(result$status, 0L)) {
+    stop("Could not reset the Windows ACL before restricting it.")
+  }
+  invisible(path)
+}
+
 .desktop_restrict_windows_acl <- function(path, directory) {
   if (.Platform$OS.type != "windows") {
     return(invisible(path))
@@ -245,6 +259,7 @@
   path <- normalizePath(path, winslash = "/", mustWork = TRUE)
   sid <- .desktop_windows_owner_sid()
   icacls <- .desktop_windows_tool("icacls.exe")
+  .desktop_reset_windows_acl(path, icacls)
   rights <- if (isTRUE(directory)) "(OI)(CI)F" else "F"
   result <- processx::run(
     icacls,

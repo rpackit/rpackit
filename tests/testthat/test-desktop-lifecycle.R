@@ -693,15 +693,44 @@ test_that("observed runtime liveness gates cleanup and overall liveness", {
 
 test_that("Windows lifecycle paths receive verified account-private ACLs", {
   skip_if(.Platform$OS.type != "windows")
-  session <- tempfile("rpackit-windows-acl-test-")
+  session <- tempfile("rpackit windows acl test ")
   expect_true(dir.create(session))
   on.exit(unlink(session, recursive = TRUE, force = TRUE), add = TRUE)
 
+  icacls <- rpackit:::.desktop_windows_tool("icacls.exe")
+  sid <- rpackit:::.desktop_windows_owner_sid()
+  seed_extra_acl <- function(path, directory) {
+    rights <- if (isTRUE(directory)) "(OI)(CI)F" else "F"
+    seeded <- processx::run(
+      icacls,
+      c(
+        path,
+        "/grant",
+        paste0("*S-1-5-32-545:", rights),
+        "/q"
+      ),
+      error_on_status = FALSE,
+      echo = FALSE,
+      windows_hide_window = TRUE
+    )
+    expect_identical(seeded$status, 0L)
+    expect_error(
+      rpackit:::.desktop_verify_windows_acl(
+        path,
+        sid,
+        directory,
+        icacls
+      ),
+      "not restricted"
+    )
+  }
+  seed_extra_acl(session, directory = TRUE)
   expect_silent(
     rpackit:::.desktop_restrict_windows_acl(session, directory = TRUE)
   )
   credential <- file.path(session, "credential")
   writeLines("private-session-token-0123456789", credential)
+  seed_extra_acl(credential, directory = FALSE)
   expect_silent(
     rpackit:::.desktop_restrict_windows_acl(
       credential,

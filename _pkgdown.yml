@@ -19,5 +19,6 @@ reference:
 - title: Run desktop applications
   contents:
   - start_desktop_app
+  - desktop_app_launch_config
   - desktop_app_status
   - stop_desktop_app
