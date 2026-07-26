@@ -9,7 +9,7 @@ future rpackit Tauri shell:"></head><body>
 
     <a class="navbar-brand me-2" href="../index.html">rpackit</a>
 
-    <small class="nav-text text-muted me-auto" data-bs-toggle="tooltip" data-bs-placement="bottom" title="">0.1.1</small>
+    <small class="nav-text text-muted me-auto" data-bs-toggle="tooltip" data-bs-placement="bottom" title="">0.1.2</small>
 
 
     <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#navbar" aria-controls="navbar" aria-expanded="false" aria-label="Toggle navigation">
@@ -44,13 +44,17 @@ future rpackit Tauri shell:</p>
     <h2 id="ref-usage">Usage<a class="anchor" aria-label="anchor" href="#ref-usage"></a></h2>
     <div class="sourceCode"><pre class="sourceCode r"><code><span><span class="fu">prepare_desktop</span><span class="op">(</span></span>
 <span>  <span class="va">app_dir</span>,</span>
-<span>  <span class="va">runtime_dir</span>,</span>
+<span>  runtime_dir <span class="op">=</span> <span class="cn">NULL</span>,</span>
 <span>  output_dir <span class="op">=</span> <span class="cn">NULL</span>,</span>
 <span>  app_name <span class="op">=</span> <span class="cn">NULL</span>,</span>
 <span>  install_packages <span class="op">=</span> <span class="cn">TRUE</span>,</span>
 <span>  repos <span class="op">=</span> <span class="fu"><a href="https://rdrr.io/r/base/options.html" class="external-link">getOption</a></span><span class="op">(</span><span class="st">"repos"</span><span class="op">)</span>,</span>
 <span>  verify_runtime <span class="op">=</span> <span class="cn">TRUE</span>,</span>
-<span>  quiet <span class="op">=</span> <span class="cn">FALSE</span></span>
+<span>  quiet <span class="op">=</span> <span class="cn">FALSE</span>,</span>
+<span>  r_version <span class="op">=</span> <span class="cn">NULL</span>,</span>
+<span>  registry <span class="op">=</span> <span class="fu"><a href="https://rdrr.io/r/base/options.html" class="external-link">getOption</a></span><span class="op">(</span><span class="st">"rpackit.runtime_registry"</span>, <span class="va">.rpackit_runtime_registry</span><span class="op">)</span>,</span>
+<span>  cache_dir <span class="op">=</span> <span class="cn">NULL</span>,</span>
+<span>  offline <span class="op">=</span> <span class="cn">FALSE</span></span>
 <span><span class="op">)</span></span></code></pre></div>
     </div>
 
@@ -63,7 +67,8 @@ future rpackit Tauri shell:</p>
 
 
 <dt id="arg-runtime-dir">runtime_dir<a class="anchor" aria-label="anchor" href="#arg-runtime-dir"></a></dt>
-<dd><p>Path to an extracted portable R home.</p></dd>
+<dd><p>Path to an extracted portable R home, or <code>NULL</code> to
+resolve a verified runtime for the current platform and architecture.</p></dd>
 
 
 <dt id="arg-output-dir">output_dir<a class="anchor" aria-label="anchor" href="#arg-output-dir"></a></dt>
@@ -84,17 +89,39 @@ future rpackit Tauri shell:</p>
 
 
 <dt id="arg-verify-runtime">verify_runtime<a class="anchor" aria-label="anchor" href="#arg-verify-runtime"></a></dt>
-<dd><p>Execute the supplied <code>Rscript --version</code> before
-copying it.</p></dd>
+<dd><p>Execute the supplied <code>Rscript</code> and read its exact R
+version before copying it. An explicit runtime is still probed when
+<code>renv.lock</code> or DESCRIPTION constrains R, even when this is <code>FALSE</code>, because
+compatibility must be established before copying or installation.</p></dd>
 
 
 <dt id="arg-quiet">quiet<a class="anchor" aria-label="anchor" href="#arg-quiet"></a></dt>
 <dd><p>Suppress the completion summary.</p></dd>
 
+
+<dt id="arg-r-version">r_version<a class="anchor" aria-label="anchor" href="#arg-r-version"></a></dt>
+<dd><p>Exact portable R version used for automatic resolution.
+Defaults to the version recorded in <code>renv.lock</code>, when present, or the
+newest verified version.</p></dd>
+
+
+<dt id="arg-registry">registry<a class="anchor" aria-label="anchor" href="#arg-registry"></a></dt>
+<dd><p>HTTPS URL or local path to a portable-R schema-v1 registry.</p></dd>
+
+
+<dt id="arg-cache-dir">cache_dir<a class="anchor" aria-label="anchor" href="#arg-cache-dir"></a></dt>
+<dd><p>Portable runtime cache directory.</p></dd>
+
+
+<dt id="arg-offline">offline<a class="anchor" aria-label="anchor" href="#arg-offline"></a></dt>
+<dd><p>Reuse an existing same-registry runtime cache entry without
+reading any registry or artifact.</p></dd>
+
 </dl></div>
     <div class="section level2">
     <h2 id="value">Value<a class="anchor" aria-label="anchor" href="#value"></a></h2>
-    <p>An <code>rpackit_desktop_bundle</code> object.</p>
+    <p>An <code>rpackit_desktop_bundle</code> object. Its <code>runtime</code> field records the
+explicit runtime path or the verified registry selection and provenance.</p>
     </div>
     <div class="section level2">
     <h2 id="details">Details<a class="anchor" aria-label="anchor" href="#details"></a></h2>
@@ -108,7 +135,11 @@ copying it.</p></dd>
 runtime is copied into the bundle, so the generated resources do not depend
 on a system R installation at run time. By default, required packages are
 installed into the copied runtime. A <code>renv.lock</code> uses <code>renv::restore()</code>;
-otherwise the parsed dependency plan is installed from <code>repos</code>.</p>
+otherwise the parsed dependency plan is installed from <code>repos</code>.
+When <code>runtime_dir = NULL</code>, a verified runtime is resolved from the
+portable-R registry and reused from a SHA-256-keyed user cache when
+available. The lockfile R version and DESCRIPTION R constraint are checked
+against the selected runtime before copying it or installing packages.</p>
 <p>The generated launcher accepts <code>--app</code>, <code>--port</code>, and <code>--token</code>, plus an
 optional private <code>--control</code> path used for graceful shutdown. It binds Shiny
 only to <code>127.0.0.1</code>, exports the token to the application as

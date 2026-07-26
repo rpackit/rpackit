@@ -1,5 +1,23 @@
 # Changelog
 
+## rpackit 0.1.2
+
+- Added
+  [`resolve_portable_runtime()`](https://rpackit.github.io/rpackit/reference/resolve_portable_runtime.md)
+  for verified schema-v1 registry selection, HTTPS/local artifact
+  sources, SHA-256 verification, traversal-aware ZIP extraction, atomic
+  caching, and offline cache reuse.
+- `prepare_desktop(runtime_dir = NULL)` now resolves a verified runtime
+  for the current platform automatically while preserving explicit
+  runtime paths.
+- Desktop preparation now rejects incompatible `renv.lock` R versions
+  and DESCRIPTION R constraints before copying a runtime or installing
+  packages.
+- Desktop manifests and returned bundle objects now retain selected
+  runtime version and checksum-bound registry/artifact provenance.
+  Validation remains compatible with earlier schema-v1 bundles that
+  predate these additive fields.
+
 ## rpackit 0.1.1
 
 - Added

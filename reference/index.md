@@ -14,6 +14,8 @@
 
 ## Build and validate desktop bundles
 
+- [`resolve_portable_runtime()`](https://rpackit.github.io/rpackit/reference/resolve_portable_runtime.md)
+  : Resolve a verified portable R runtime
 - [`prepare_desktop()`](https://rpackit.github.io/rpackit/reference/prepare_desktop.md)
   : Prepare portable desktop resources for an R application
 - [`validate_desktop_bundle()`](https://rpackit.github.io/rpackit/reference/validate_desktop_bundle.md)

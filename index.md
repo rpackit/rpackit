@@ -16,6 +16,9 @@ server bundle.
 - [`plan_dependencies()`](https://rpackit.github.io/rpackit/reference/plan_dependencies.md)
   combines parsed R calls, `DESCRIPTION`, and `renv.lock` without
   executing application code;
+- [`resolve_portable_runtime()`](https://rpackit.github.io/rpackit/reference/resolve_portable_runtime.md)
+  selects verified registry entries, checks SHA-256, and maintains an
+  atomic local runtime cache;
 - [`prepare_desktop()`](https://rpackit.github.io/rpackit/reference/prepare_desktop.md)
   builds atomic portable-R resource bundles;
 - [`start_desktop_app()`](https://rpackit.github.io/rpackit/reference/start_desktop_app.md),
@@ -77,14 +80,14 @@ plan_dependencies("path/to/shiny-app", include_suggests = TRUE)
 
 ## Portable desktop resources
 
-The first desktop build layer prepares a complete resource directory
-from an extracted portable R runtime:
+On a platform with a verified registry entry, the first desktop build
+layer can resolve, verify, cache, and bundle portable R in one call:
 
 ``` r
 
 bundle <- prepare_desktop(
   "path/to/shiny-app",
-  runtime_dir = "path/to/portable-r"
+  runtime_dir = NULL
 )
 validate_desktop_bundle(bundle$path, verify_runtime = TRUE)
 
@@ -94,10 +97,48 @@ desktop_app_status(process)
 stop_desktop_app(process)
 ```
 
+The current public registry contains a verified Windows x86_64 runtime.
+On an unsupported platform, the resolver lists the verified
+platform/version choices instead of silently using system R. An already
+extracted runtime remains fully supported:
+
+``` r
+
+runtime <- resolve_portable_runtime()
+runtime[c("r_version", "platform", "arch", "sha256", "cache_hit")]
+
+bundle <- prepare_desktop(
+  "path/to/shiny-app",
+  runtime_dir = runtime$path
+)
+```
+
+Remote registry and artifact sources must use stable HTTPS URLs without
+credentials, query strings, or fragments. Local files are also accepted
+as an rpackit transport extension for air-gapped mirrors and tests; UNC
+shares are rejected. The resolver accepts only `verified` entries,
+checks SHA-256 before extraction, rejects unsafe paths and ZIP entry
+types other than files or directories, and publishes runtimes atomically
+to rpackit’s user cache. A later call reuses the registry-bound,
+content-addressed version/SHA cache entry. Use `offline = TRUE` to
+require a cache hit from the same registry source without reading any
+registry or artifact.
+
+SHA-256 proves that the downloaded archive matches the registry record;
+it is not code signing. Cache hits are structurally revalidated for
+links and path escapes, but the cache still contains executable code and
+must not be writable by untrusted users. Automatic tar extraction
+currently fails closed because tar link targets cannot yet be proven
+safe before extraction.
+
 This copies the app and runtime, restores or installs required packages,
 writes the loopback-only `launcher.R`, and records an explicit
-`rpackit.json` manifest. Existing output is never overwritten. The
-lifecycle manager starts the bundled `Rscript`, waits for both a
+`rpackit.json` manifest, including runtime version and registry artifact
+provenance when automatic resolution was used. A `renv.lock` R version
+and DESCRIPTION `Depends: R` constraint are checked before runtime
+copying or package installation. Existing output is never overwritten.
+
+The lifecycle manager starts the bundled `Rscript`, waits for both a
 versioned launcher event and a real HTTP response, and requests graceful
 shutdown through a private control file. If graceful shutdown times out,
 it asks `processx` to terminate the tracked process and its known tree,

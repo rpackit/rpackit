@@ -7,7 +7,7 @@
 
     <a class="navbar-brand me-2" href="../index.html">rpackit</a>
 
-    <small class="nav-text text-muted me-auto" data-bs-toggle="tooltip" data-bs-placement="bottom" title="">0.1.1</small>
+    <small class="nav-text text-muted me-auto" data-bs-toggle="tooltip" data-bs-placement="bottom" title="">0.1.2</small>
 
 
     <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#navbar" aria-controls="navbar" aria-expanded="false" aria-label="Toggle navigation">
@@ -33,6 +33,14 @@
     </div>
 
     <div class="section level2">
+<h2 class="pkg-version" data-toc-text="0.1.2" id="rpackit-012">rpackit 0.1.2<a class="anchor" aria-label="anchor" href="#rpackit-012"></a></h2>
+<ul><li>Added <code><a href="../reference/resolve_portable_runtime.html">resolve_portable_runtime()</a></code> for verified schema-v1 registry selection, HTTPS/local artifact sources, SHA-256 verification, traversal-aware ZIP extraction, atomic caching, and offline cache reuse.</li>
+<li>
+<code>prepare_desktop(runtime_dir = NULL)</code> now resolves a verified runtime for the current platform automatically while preserving explicit runtime paths.</li>
+<li>Desktop preparation now rejects incompatible <code>renv.lock</code> R versions and DESCRIPTION R constraints before copying a runtime or installing packages.</li>
+<li>Desktop manifests and returned bundle objects now retain selected runtime version and checksum-bound registry/artifact provenance. Validation remains compatible with earlier schema-v1 bundles that predate these additive fields.</li>
+</ul></div>
+    <div class="section level2">
 <h2 class="pkg-version" data-toc-text="0.1.1" id="rpackit-011">rpackit 0.1.1<a class="anchor" aria-label="anchor" href="#rpackit-011"></a></h2>
 <ul><li>Added <code><a href="../reference/plan_dependencies.html">plan_dependencies()</a></code> for non-executing dependency discovery from parsed R calls, <code>DESCRIPTION</code>, and <code>renv.lock</code>.</li>
 <li>Added explicit dependency precedence, provenance, diagnostics, and clear read/parse failures.</li>
@@ -44,7 +52,8 @@
 <li>
 <code><a href="../reference/doctor.html">doctor()</a></code> now requires the Tauri CLI, a JavaScript package manager, the native platform toolchain, and WebView2 on Windows before reporting that a Tauri desktop build is supported.</li>
 </ul></div>
-  </main></div>
+  </main><aside class="col-md-3"><nav id="toc" aria-label="Table of contents"><h2>On this page</h2>
+    </nav></aside></div>
 
 
     <footer><div class="pkgdown-footer-left">

@@ -11,8 +11,8 @@
 <script src="deps/bootstrap-5.3.8/bootstrap.bundle.min.js"></script><link href="deps/font-awesome-6.5.2/css/all.min.css" rel="stylesheet">
 <link href="deps/font-awesome-6.5.2/css/v4-shims.min.css" rel="stylesheet">
 <script src="deps/headroom-0.11.0/headroom.min.js"></script><script src="deps/headroom-0.11.0/jQuery.headroom.min.js"></script><script src="deps/bootstrap-toc-1.0.1/bootstrap-toc.min.js"></script><script src="deps/clipboard.js-2.0.11/clipboard.min.js"></script><script src="deps/search-1.0.0/autocomplete.jquery.min.js"></script><script src="deps/search-1.0.0/fuse.min.js"></script><script src="deps/search-1.0.0/mark.min.js"></script><!-- pkgdown --><script src="pkgdown.js"></script><meta property="og:title" content="Check and Package R Applications">
-<meta name="description" content="Inspects R application projects and the local build environment before packaging. It recognizes common Shiny layouts, plans dependencies from parsed R source, package metadata, and lockfiles, and recommends portable desktop, static web, and dynamic server targets.">
-<meta property="og:description" content="Inspects R application projects and the local build environment before packaging. It recognizes common Shiny layouts, plans dependencies from parsed R source, package metadata, and lockfiles, and recommends portable desktop, static web, and dynamic server targets.">
+<meta name="description" content="Inspects R application projects and the local build environment before packaging. It recognizes common Shiny layouts, plans dependencies from parsed R source, package metadata, and lockfiles, resolves verified portable R runtimes, prepares atomic desktop resource bundles, manages loopback Shiny processes, and recommends portable desktop, static web, and dynamic server targets.">
+<meta property="og:description" content="Inspects R application projects and the local build environment before packaging. It recognizes common Shiny layouts, plans dependencies from parsed R source, package metadata, and lockfiles, resolves verified portable R runtimes, prepares atomic desktop resource bundles, manages loopback Shiny processes, and recommends portable desktop, static web, and dynamic server targets.">
 </head>
 <body>
     <a href="#main" class="visually-hidden-focusable">Skip to contents</a>
@@ -22,7 +22,7 @@
 
     <a class="navbar-brand me-2" href="index.html">rpackit</a>
 
-    <small class="nav-text text-muted me-auto" data-bs-toggle="tooltip" data-bs-placement="bottom" title="">0.1.1</small>
+    <small class="nav-text text-muted me-auto" data-bs-toggle="tooltip" data-bs-placement="bottom" title="">0.1.2</small>
 
 
     <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#navbar" aria-controls="navbar" aria-expanded="false" aria-label="Toggle navigation">
@@ -61,6 +61,8 @@
 <code><a href="reference/check_app.html">check_app()</a></code> recognizes common Shiny project layouts;</li>
 <li>
 <code><a href="reference/plan_dependencies.html">plan_dependencies()</a></code> combines parsed R calls, <code>DESCRIPTION</code>, and <code>renv.lock</code> without executing application code;</li>
+<li>
+<code><a href="reference/resolve_portable_runtime.html">resolve_portable_runtime()</a></code> selects verified registry entries, checks SHA-256, and maintains an atomic local runtime cache;</li>
 <li>
 <code><a href="reference/prepare_desktop.html">prepare_desktop()</a></code> builds atomic portable-R resource bundles;</li>
 <li>
@@ -108,11 +110,11 @@
 <div class="section level2">
 <h2 id="portable-desktop-resources">Portable desktop resources<a class="anchor" aria-label="anchor" href="#portable-desktop-resources"></a>
 </h2>
-<p>The first desktop build layer prepares a complete resource directory from an extracted portable R runtime:</p>
+<p>On a platform with a verified registry entry, the first desktop build layer can resolve, verify, cache, and bundle portable R in one call:</p>
 <div class="sourceCode" id="cb5"><pre class="downlit sourceCode r">
 <code class="sourceCode R"><span><span class="va">bundle</span> <span class="op">&lt;-</span> <span class="fu"><a href="reference/prepare_desktop.html">prepare_desktop</a></span><span class="op">(</span></span>
 <span>  <span class="st">"path/to/shiny-app"</span>,</span>
-<span>  runtime_dir <span class="op">=</span> <span class="st">"path/to/portable-r"</span></span>
+<span>  runtime_dir <span class="op">=</span> <span class="cn">NULL</span></span>
 <span><span class="op">)</span></span>
 <span><span class="fu"><a href="reference/validate_desktop_bundle.html">validate_desktop_bundle</a></span><span class="op">(</span><span class="va">bundle</span><span class="op">$</span><span class="va">path</span>, verify_runtime <span class="op">=</span> <span class="cn">TRUE</span><span class="op">)</span></span>
 <span></span>
@@ -120,7 +122,19 @@
 <span><span class="fu"><a href="reference/desktop_app_status.html">desktop_app_status</a></span><span class="op">(</span><span class="va">process</span><span class="op">)</span></span>
 <span><span class="co"># Hand process$launch_url directly to an embedded webview; do not log it.</span></span>
 <span><span class="fu"><a href="reference/stop_desktop_app.html">stop_desktop_app</a></span><span class="op">(</span><span class="va">process</span><span class="op">)</span></span></code></pre></div>
-<p>This copies the app and runtime, restores or installs required packages, writes the loopback-only <code>launcher.R</code>, and records an explicit <code>rpackit.json</code> manifest. Existing output is never overwritten. The lifecycle manager starts the bundled <code>Rscript</code>, waits for both a versioned launcher event and a real HTTP response, and requests graceful shutdown through a private control file. If graceful shutdown times out, it asks <code>processx</code> to terminate the tracked process and its known tree, with a tracked-process kill as fallback. Status reports both the processx wrapper <code>pid</code> and the launcher-reported <code>runtime_pid</code>, which can differ for portable R on Windows. Readiness captures a create-time-aware handle for the observed runtime PID, and cleanup is confirmed only after both captured processes stop. Those observations do not independently prove other process-tree membership or descendant termination.</p>
+<p>The current public registry contains a verified Windows x86_64 runtime. On an unsupported platform, the resolver lists the verified platform/version choices instead of silently using system R. An already extracted runtime remains fully supported:</p>
+<div class="sourceCode" id="cb6"><pre class="downlit sourceCode r">
+<code class="sourceCode R"><span><span class="va">runtime</span> <span class="op">&lt;-</span> <span class="fu"><a href="reference/resolve_portable_runtime.html">resolve_portable_runtime</a></span><span class="op">(</span><span class="op">)</span></span>
+<span><span class="va">runtime</span><span class="op">[</span><span class="fu"><a href="https://rdrr.io/r/base/c.html" class="external-link">c</a></span><span class="op">(</span><span class="st">"r_version"</span>, <span class="st">"platform"</span>, <span class="st">"arch"</span>, <span class="st">"sha256"</span>, <span class="st">"cache_hit"</span><span class="op">)</span><span class="op">]</span></span>
+<span></span>
+<span><span class="va">bundle</span> <span class="op">&lt;-</span> <span class="fu"><a href="reference/prepare_desktop.html">prepare_desktop</a></span><span class="op">(</span></span>
+<span>  <span class="st">"path/to/shiny-app"</span>,</span>
+<span>  runtime_dir <span class="op">=</span> <span class="va">runtime</span><span class="op">$</span><span class="va">path</span></span>
+<span><span class="op">)</span></span></code></pre></div>
+<p>Remote registry and artifact sources must use stable HTTPS URLs without credentials, query strings, or fragments. Local files are also accepted as an rpackit transport extension for air-gapped mirrors and tests; UNC shares are rejected. The resolver accepts only <code>verified</code> entries, checks SHA-256 before extraction, rejects unsafe paths and ZIP entry types other than files or directories, and publishes runtimes atomically to rpackit’s user cache. A later call reuses the registry-bound, content-addressed version/SHA cache entry. Use <code>offline = TRUE</code> to require a cache hit from the same registry source without reading any registry or artifact.</p>
+<p>SHA-256 proves that the downloaded archive matches the registry record; it is not code signing. Cache hits are structurally revalidated for links and path escapes, but the cache still contains executable code and must not be writable by untrusted users. Automatic tar extraction currently fails closed because tar link targets cannot yet be proven safe before extraction.</p>
+<p>This copies the app and runtime, restores or installs required packages, writes the loopback-only <code>launcher.R</code>, and records an explicit <code>rpackit.json</code> manifest, including runtime version and registry artifact provenance when automatic resolution was used. A <code>renv.lock</code> R version and DESCRIPTION <code>Depends: R</code> constraint are checked before runtime copying or package installation. Existing output is never overwritten.</p>
+<p>The lifecycle manager starts the bundled <code>Rscript</code>, waits for both a versioned launcher event and a real HTTP response, and requests graceful shutdown through a private control file. If graceful shutdown times out, it asks <code>processx</code> to terminate the tracked process and its known tree, with a tracked-process kill as fallback. Status reports both the processx wrapper <code>pid</code> and the launcher-reported <code>runtime_pid</code>, which can differ for portable R on Windows. Readiness captures a create-time-aware handle for the observed runtime PID, and cleanup is confirmed only after both captured processes stop. Those observations do not independently prove other process-tree membership or descendant termination.</p>
 <p>The <code>start</code>/<code>status</code>/<code>stop</code> sequence above is the currently implemented and end-to-end-tested lifecycle. It is not yet a Tauri shell or executable. The session token is currently a correlation/bootstrap value exported as <code>RPACKIT_SESSION_TOKEN</code>; it does not authenticate HTTP or WebSocket traffic. Only the process handle retains the token-bearing <code>launch_url</code>; status and print methods expose the token-free loopback URL. The manifest and returned status therefore explicitly report <code>network_token_enforced = FALSE</code>. Network enforcement, Tauri project generation, and native executable packaging remain desktop milestones. Static-web and server builders also remain milestone work.</p>
 <p>For a complete Windows walkthrough using the published portable R prototype, including SHA-256 verification and lifecycle cleanup, see the <a href="https://github.com/rpackit/rpackit-examples/tree/main/hello-shiny" class="external-link"><code>hello-shiny</code> quickstart</a>.</p>
 </div>

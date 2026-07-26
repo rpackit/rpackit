@@ -8,13 +8,17 @@ the future rpackit Tauri shell:
 ``` r
 prepare_desktop(
   app_dir,
-  runtime_dir,
+  runtime_dir = NULL,
   output_dir = NULL,
   app_name = NULL,
   install_packages = TRUE,
   repos = getOption("repos"),
   verify_runtime = TRUE,
-  quiet = FALSE
+  quiet = FALSE,
+  r_version = NULL,
+  registry = getOption("rpackit.runtime_registry", .rpackit_runtime_registry),
+  cache_dir = NULL,
+  offline = FALSE
 )
 ```
 
@@ -26,7 +30,8 @@ prepare_desktop(
 
 - runtime_dir:
 
-  Path to an extracted portable R home.
+  Path to an extracted portable R home, or `NULL` to resolve a verified
+  runtime for the current platform and architecture.
 
 - output_dir:
 
@@ -46,15 +51,38 @@ prepare_desktop(
 
 - verify_runtime:
 
-  Execute the supplied `Rscript --version` before copying it.
+  Execute the supplied `Rscript` and read its exact R version before
+  copying it. An explicit runtime is still probed when `renv.lock` or
+  DESCRIPTION constrains R, even when this is `FALSE`, because
+  compatibility must be established before copying or installation.
 
 - quiet:
 
   Suppress the completion summary.
 
+- r_version:
+
+  Exact portable R version used for automatic resolution. Defaults to
+  the version recorded in `renv.lock`, when present, or the newest
+  verified version.
+
+- registry:
+
+  HTTPS URL or local path to a portable-R schema-v1 registry.
+
+- cache_dir:
+
+  Portable runtime cache directory.
+
+- offline:
+
+  Reuse an existing same-registry runtime cache entry without reading
+  any registry or artifact.
+
 ## Value
 
-An `rpackit_desktop_bundle` object.
+An `rpackit_desktop_bundle` object. Its `runtime` field records the
+explicit runtime path or the verified registry selection and provenance.
 
 ## Details
 
@@ -70,7 +98,11 @@ runtime is copied into the bundle, so the generated resources do not
 depend on a system R installation at run time. By default, required
 packages are installed into the copied runtime. A `renv.lock` uses
 `renv::restore()`; otherwise the parsed dependency plan is installed
-from `repos`.
+from `repos`. When `runtime_dir = NULL`, a verified runtime is resolved
+from the portable-R registry and reused from a SHA-256-keyed user cache
+when available. The lockfile R version and DESCRIPTION R constraint are
+checked against the selected runtime before copying it or installing
+packages.
 
 The generated launcher accepts `--app`, `--port`, and `--token`, plus an
 optional private `--control` path used for graceful shutdown. It binds

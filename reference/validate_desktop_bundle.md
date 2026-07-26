@@ -18,7 +18,9 @@ validate_desktop_bundle(bundle_dir, verify_runtime = FALSE, quiet = FALSE)
 
 - verify_runtime:
 
-  Execute the bundled `Rscript --version`.
+  Execute the bundled `Rscript`, read
+  [`getRversion()`](https://rdrr.io/r/base/numeric_version.html), and
+  require it to match the version recorded in the manifest when present.
 
 - quiet:
 
