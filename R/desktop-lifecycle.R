@@ -150,6 +150,29 @@
   normalizePath(candidates[[1L]], winslash = "/", mustWork = TRUE)
 }
 
+.desktop_windows_powershell <- function() {
+  system_root <- Sys.getenv("SystemRoot", unset = "")
+  candidates <- unique(c(
+    if (nzchar(system_root)) {
+      file.path(
+        system_root,
+        "System32",
+        "WindowsPowerShell",
+        "v1.0",
+        "powershell.exe"
+      )
+    } else {
+      character()
+    },
+    unname(Sys.which("powershell.exe"))
+  ))
+  candidates <- candidates[nzchar(candidates) & file.exists(candidates)]
+  if (!length(candidates)) {
+    stop("Required Windows security tool is unavailable: powershell.exe")
+  }
+  normalizePath(candidates[[1L]], winslash = "/", mustWork = TRUE)
+}
+
 .desktop_windows_owner_sid <- function() {
   whoami <- .desktop_windows_tool("whoami.exe")
   result <- processx::run(
@@ -232,22 +255,66 @@
       !valid_fields ||
       !setequal(trustees, c("SY", sid))) {
     stop(
-      "Windows ACL was not restricted to the current account and SYSTEM."
+      paste0(
+        "Windows ACL was not restricted to the current account and SYSTEM.",
+        "\nObserved DACL: ",
+        dacl
+      )
     )
   }
   invisible(TRUE)
 }
 
-.desktop_reset_windows_acl <- function(path, icacls) {
+.desktop_set_windows_acl <- function(path, sid, directory) {
+  powershell <- .desktop_windows_powershell()
+  flags <- if (isTRUE(directory)) "OICI" else ""
+  descriptor <- paste0(
+    "D:P",
+    "(A;", flags, ";FA;;;SY)",
+    "(A;", flags, ";FA;;;", sid, ")"
+  )
+  command <- paste(
+    "$ErrorActionPreference = 'Stop'",
+    "$path = $env:RPACKIT_WINDOWS_ACL_PATH",
+    "$descriptor = $env:RPACKIT_WINDOWS_ACL_SDDL",
+    "if ($env:RPACKIT_WINDOWS_ACL_DIRECTORY -eq 'true') {",
+    "$acl = New-Object System.Security.AccessControl.DirectorySecurity",
+    "$acl.SetSecurityDescriptorSddlForm(",
+    "$descriptor,",
+    "[System.Security.AccessControl.AccessControlSections]::Access",
+    ")",
+    "[System.IO.Directory]::SetAccessControl($path, $acl)",
+    "} else {",
+    "$acl = New-Object System.Security.AccessControl.FileSecurity",
+    "$acl.SetSecurityDescriptorSddlForm(",
+    "$descriptor,",
+    "[System.Security.AccessControl.AccessControlSections]::Access",
+    ")",
+    "[System.IO.File]::SetAccessControl($path, $acl)",
+    "}",
+    sep = "\n"
+  )
   result <- processx::run(
-    icacls,
-    c(path, "/reset", "/q"),
+    powershell,
+    c(
+      "-NoLogo",
+      "-NoProfile",
+      "-NonInteractive",
+      "-Command",
+      command
+    ),
     error_on_status = FALSE,
     echo = FALSE,
-    windows_hide_window = TRUE
+    windows_hide_window = TRUE,
+    env = c(
+      "current",
+      RPACKIT_WINDOWS_ACL_PATH = path,
+      RPACKIT_WINDOWS_ACL_SDDL = descriptor,
+      RPACKIT_WINDOWS_ACL_DIRECTORY = if (isTRUE(directory)) "true" else "false"
+    )
   )
   if (!identical(result$status, 0L)) {
-    stop("Could not reset the Windows ACL before restricting it.")
+    stop("Could not set the restricted Windows ACL.")
   }
   invisible(path)
 }
@@ -259,25 +326,7 @@
   path <- normalizePath(path, winslash = "/", mustWork = TRUE)
   sid <- .desktop_windows_owner_sid()
   icacls <- .desktop_windows_tool("icacls.exe")
-  .desktop_reset_windows_acl(path, icacls)
-  rights <- if (isTRUE(directory)) "(OI)(CI)F" else "F"
-  result <- processx::run(
-    icacls,
-    c(
-      path,
-      "/inheritance:r",
-      "/grant:r",
-      paste0("*", sid, ":", rights),
-      paste0("*S-1-5-18:", rights),
-      "/q"
-    ),
-    error_on_status = FALSE,
-    echo = FALSE,
-    windows_hide_window = TRUE
-  )
-  if (!identical(result$status, 0L)) {
-    stop("Could not restrict the Windows ACL.")
-  }
+  .desktop_set_windows_acl(path, sid, directory)
   .desktop_verify_windows_acl(path, sid, directory, icacls)
   invisible(path)
 }
