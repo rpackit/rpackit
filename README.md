@@ -173,10 +173,13 @@ launcher protocol 2 directly and does not call or serialize the R-level
 The pre-release
 [`rpackit-tauri` Windows spike](https://github.com/rpackit/rpackit-tauri)
 exercises this contract with a real WebView2 development runtime. It is not a
-generated application, supported installer, or release-ready transport; the
-fixed-runtime, crash-persistence, browser-escape, resource-abuse,
-malformed-upstream, and listener-overlap matrix remains open. The threat model
-excludes malicious same-user processes,
+generated application, supported installer, or release-ready transport. The
+current Windows development gate proves exact loopback routing wins across
+IPv4 wildcard, IPv6 v6-only wildcard, and IPv6 dual-stack wildcard contenders.
+The dual-stack contender is exercised against both exact families; wildcard
+bind success is not mistaken for interception. The reviewed fixed-runtime,
+crash-persistence, browser-escape, resource-abuse, and malformed-upstream
+matrices remain open. The threat model excludes malicious same-user processes,
 administrator or debugger access, and untrusted app/package code running
 inside the credential-bearing R process. Tauri project generation, native
 executable packaging, static-web builders, and server builders remain later
