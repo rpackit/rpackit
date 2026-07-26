@@ -75,8 +75,10 @@ response.</p></dd>
 
 
 <dt id="arg-token">token<a class="anchor" aria-label="anchor" href="#arg-token"></a></dt>
-<dd><p>Session correlation token containing 16 to 256 URL-safe ASCII
-characters, or <code>NULL</code> to generate one.</p></dd>
+<dd><p>Session credential containing 16 to 256 URL-safe ASCII
+characters, or <code>NULL</code> to generate a 256-bit credential with the operating
+system cryptographic random source. Supplying a token transfers
+responsibility for its entropy to the caller.</p></dd>
 
 
 <dt id="arg-quiet">quiet<a class="anchor" aria-label="anchor" href="#arg-quiet"></a></dt>
@@ -90,14 +92,27 @@ characters, or <code>NULL</code> to generate one.</p></dd>
     </div>
     <div class="section level2">
     <h2 id="details">Details<a class="anchor" aria-label="anchor" href="#details"></a></h2>
-    <p>The token is passed to the app as <code>RPACKIT_SESSION_TOKEN</code>. The process
-handle retains it in <code>token</code> and in the sensitive <code>launch_url</code> intended for
-an embedded shell handoff; neither value is returned by
-<code><a href="desktop_app_status.html">desktop_app_status()</a></code> or printed. The token is <strong>not</strong> currently enforced
-for HTTP or WebSocket access, and is not an authentication credential. The
-returned object therefore always records <code>network_token_enforced = FALSE</code>.</p>
-<p>The launcher protocol is also suitable for a future Tauri sidecar:
-<code>launcher.R --app &lt;path&gt; --port &lt;port&gt; --token &lt;token&gt; --control &lt;path&gt;</code>.
+    <p>The generated 256-bit token is delivered to the launcher through a
+single-use current-account-private file, never through the process command
+line, environment, or URL. On Windows, rpackit restricts and verifies the
+DACL for the current account plus SYSTEM; on POSIX it verifies directory
+mode 0700 and file mode 0600. The launcher reads and deletes that file before
+validating or loading the app. Shiny requires the credential in the
+<code>Shiny-Shared-Secret</code> request
+header for
+dynamic HTTP, static HTTP, and WebSocket traffic. The process handle retains
+the credential in <code>token</code> and <code>launch_headers</code> while it is running; neither
+is returned by <code><a href="desktop_app_status.html">desktop_app_status()</a></code> or printed, and both are discarded
+after confirmed cleanup.</p>
+<p>A native shell or loopback proxy must inject <code>launch_headers</code> into the
+initial navigation, every same-origin subrequest, and every WebSocket
+upgrade. Stock browser navigation cannot attach this header. Header
+injection must be restricted to the exact loopback origin in <code>launch_url</code>
+and must not follow external redirects with the credential attached.</p>
+<p>The launcher protocol is suitable for a Tauri sidecar:
+<code>launcher.R --app &lt;path&gt; --port &lt;port&gt; --token-file &lt;path&gt; --control &lt;path&gt;</code>.
+The token file contains exactly one URL-safe line and must be restricted to
+the launching account and privileged operating-system services.
 Lifecycle events are newline-delimited JSON on standard output, prefixed by
 <code>RPACKIT_EVENT </code>. Creating the previously absent control path asks the
 launcher to stop Shiny gracefully.</p>

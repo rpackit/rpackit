@@ -1,5 +1,37 @@
 # Changelog
 
+## rpackit (development version)
+
+- Desktop launches now enforce a fresh 256-bit session credential across
+  dynamic HTTP, static resources, and WebSocket sessions using Shiny’s
+  shared secret request header.
+- Session credentials move through a current-account-private, one-time
+  file that the launcher deletes before any app or port validation.
+  Windows DACLs are restricted and verified for the current account plus
+  SYSTEM; POSIX permissions are verified as directory mode 0700 and file
+  mode 0600. The credential is no longer placed by rpackit in child
+  arguments, environment variables, URLs, manifests, generated event
+  fields, status objects, or print output. Launcher errors and returned
+  logs/events are redacted; arbitrary app output remains inside the
+  private raw log and is outside that guarantee.
+- Added a post-bind `listening` lifecycle event and authenticated
+  readiness probe, removing the previous pre-bind token-disclosure race.
+- Added
+  [`desktop_app_launch_config()`](https://rpackit.github.io/rpackit/reference/desktop_app_launch_config.md)
+  as the explicit, redaction-safe handoff contract for a native
+  exact-origin header injector or loopback proxy. Cleanup prevents
+  future handoffs and clears the managed handle, but cannot revoke
+  caller-retained copies.
+- New bundles use launcher protocol 2 and report
+  `network_token_enforced = TRUE`. Legacy protocol-1 bundles remain
+  inspectable only when manifest and launcher content agree, and are
+  refused at launch with a rebuild instruction.
+- Directory-app `DESCRIPTION` behavior remains intact, unauthorized
+  WebSocket tests require positive close evidence, and incomplete
+  private-file cleanup retains a process handle for an explicit retry.
+  Direct sidecar launches also work correctly when the optional
+  `--control` argument is omitted.
+
 ## rpackit 0.1.2
 
 - Added

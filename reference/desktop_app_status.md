@@ -28,5 +28,5 @@ desktop_app_status(process, tail = 20L)
 ## Value
 
 An `rpackit_desktop_status` object. Its `url` is the token-free loopback
-endpoint; the object never contains the session token or sensitive
-launch URL.
+endpoint; the object never contains the session token or authenticated
+launch headers.

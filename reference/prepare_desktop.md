@@ -104,13 +104,16 @@ when available. The lockfile R version and DESCRIPTION R constraint are
 checked against the selected runtime before copying it or installing
 packages.
 
-The generated launcher accepts `--app`, `--port`, and `--token`, plus an
-optional private `--control` path used for graceful shutdown. It binds
-Shiny only to `127.0.0.1`, exports the token to the application as
-`RPACKIT_SESSION_TOKEN`, and emits versioned lifecycle events.
-Network-level token enforcement belongs to the desktop shell/proxy and
-is deliberately recorded as not yet implemented in `rpackit.json`; this
-function does not claim to produce a Tauri executable.
+The generated launcher accepts `--app`, `--port`, and a one-time
+current-account-private `--token-file`, plus an optional private
+`--control` path used for graceful shutdown. It consumes and deletes the
+credential before validating the app or port, binds Shiny only to
+`127.0.0.1`, and enforces that credential through Shiny's
+`Shiny-Shared-Secret` checks for HTTP, static resources, and WebSockets.
+Dynamic HTTP and WebSocket comparisons are constant-time. The manifest
+records this authenticated transport explicitly. This function still
+prepares resources; it does not claim to produce a Tauri executable or a
+browser-compatible header injector.
 
 Build inputs are never modified. Output is assembled in a sibling
 staging directory and renamed into place only after validation. Existing

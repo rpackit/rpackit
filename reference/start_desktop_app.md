@@ -34,8 +34,10 @@ start_desktop_app(
 
 - token:
 
-  Session correlation token containing 16 to 256 URL-safe ASCII
-  characters, or `NULL` to generate one.
+  Session credential containing 16 to 256 URL-safe ASCII characters, or
+  `NULL` to generate a 256-bit credential with the operating system
+  cryptographic random source. Supplying a token transfers
+  responsibility for its entropy to the caller.
 
 - quiet:
 
@@ -49,16 +51,30 @@ when finished.
 
 ## Details
 
-The token is passed to the app as `RPACKIT_SESSION_TOKEN`. The process
-handle retains it in `token` and in the sensitive `launch_url` intended
-for an embedded shell handoff; neither value is returned by
+The generated 256-bit token is delivered to the launcher through a
+single-use current-account-private file, never through the process
+command line, environment, or URL. On Windows, rpackit restricts and
+verifies the DACL for the current account plus SYSTEM; on POSIX it
+verifies directory mode 0700 and file mode 0600. The launcher reads and
+deletes that file before validating or loading the app. Shiny requires
+the credential in the `Shiny-Shared-Secret` request header for dynamic
+HTTP, static HTTP, and WebSocket traffic. The process handle retains the
+credential in `token` and `launch_headers` while it is running; neither
+is returned by
 [`desktop_app_status()`](https://rpackit.github.io/rpackit/reference/desktop_app_status.md)
-or printed. The token is **not** currently enforced for HTTP or
-WebSocket access, and is not an authentication credential. The returned
-object therefore always records `network_token_enforced = FALSE`.
+or printed, and both are discarded after confirmed cleanup.
 
-The launcher protocol is also suitable for a future Tauri sidecar:
-`launcher.R --app <path> --port <port> --token <token> --control <path>`.
+A native shell or loopback proxy must inject `launch_headers` into the
+initial navigation, every same-origin subrequest, and every WebSocket
+upgrade. Stock browser navigation cannot attach this header. Header
+injection must be restricted to the exact loopback origin in
+`launch_url` and must not follow external redirects with the credential
+attached.
+
+The launcher protocol is suitable for a Tauri sidecar:
+`launcher.R --app <path> --port <port> --token-file <path> --control <path>`.
+The token file contains exactly one URL-safe line and must be restricted
+to the launching account and privileged operating-system services.
 Lifecycle events are newline-delimited JSON on standard output, prefixed
 by `RPACKIT_EVENT `. Creating the previously absent control path asks
 the launcher to stop Shiny gracefully.

@@ -25,6 +25,8 @@
 
 - [`start_desktop_app()`](https://rpackit.github.io/rpackit/reference/start_desktop_app.md)
   : Start a prepared desktop Shiny application
+- [`desktop_app_launch_config()`](https://rpackit.github.io/rpackit/reference/desktop_app_launch_config.md)
+  : Return the authenticated native-shell launch contract
 - [`desktop_app_status()`](https://rpackit.github.io/rpackit/reference/desktop_app_status.md)
   : Inspect a managed desktop application process
 - [`stop_desktop_app()`](https://rpackit.github.io/rpackit/reference/stop_desktop_app.md)

@@ -140,13 +140,17 @@ When <code>runtime_dir = NULL</code>, a verified runtime is resolved from the
 portable-R registry and reused from a SHA-256-keyed user cache when
 available. The lockfile R version and DESCRIPTION R constraint are checked
 against the selected runtime before copying it or installing packages.</p>
-<p>The generated launcher accepts <code>--app</code>, <code>--port</code>, and <code>--token</code>, plus an
-optional private <code>--control</code> path used for graceful shutdown. It binds Shiny
-only to <code>127.0.0.1</code>, exports the token to the application as
-<code>RPACKIT_SESSION_TOKEN</code>, and emits versioned lifecycle events. Network-level
-token enforcement belongs to the desktop shell/proxy and is deliberately
-recorded as not yet implemented in <code>rpackit.json</code>; this function does not
-claim to produce a Tauri executable.</p>
+<p>The generated launcher accepts <code>--app</code>, <code>--port</code>, and a one-time
+current-account-private
+<code>--token-file</code>, plus an optional private <code>--control</code> path used for graceful
+shutdown. It consumes and deletes the credential before validating the app
+or port, binds Shiny only to <code>127.0.0.1</code>, and enforces that credential
+through Shiny's
+<code>Shiny-Shared-Secret</code> checks for HTTP, static resources, and WebSockets.
+Dynamic HTTP and WebSocket comparisons are constant-time. The manifest
+records this authenticated transport explicitly.
+This function still prepares resources; it does not claim to produce a
+Tauri executable or a browser-compatible header injector.</p>
 <p>Build inputs are never modified. Output is assembled in a sibling staging
 directory and renamed into place only after validation. Existing output is
 never overwritten.</p>

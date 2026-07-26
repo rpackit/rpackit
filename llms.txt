@@ -22,10 +22,11 @@ server bundle.
 - [`prepare_desktop()`](https://rpackit.github.io/rpackit/reference/prepare_desktop.md)
   builds atomic portable-R resource bundles;
 - [`start_desktop_app()`](https://rpackit.github.io/rpackit/reference/start_desktop_app.md),
+  [`desktop_app_launch_config()`](https://rpackit.github.io/rpackit/reference/desktop_app_launch_config.md),
   [`desktop_app_status()`](https://rpackit.github.io/rpackit/reference/desktop_app_status.md),
   and
   [`stop_desktop_app()`](https://rpackit.github.io/rpackit/reference/stop_desktop_app.md)
-  manage a real loopback-only Shiny subprocess lifecycle;
+  manage an authenticated, loopback-only Shiny subprocess lifecycle;
 - package, `renv`, system-call, Python, native-package, and large-data
   checks;
 - an evidence-backed target suitability matrix;
@@ -93,7 +94,9 @@ validate_desktop_bundle(bundle$path, verify_runtime = TRUE)
 
 process <- start_desktop_app(bundle$path)
 desktop_app_status(process)
-# Hand process$launch_url directly to an embedded webview; do not log it.
+launch <- desktop_app_launch_config(process)
+# Give `launch` to a native shell/proxy that supports protected header
+# injection. Do not serialize or log launch$headers.
 stop_desktop_app(process)
 ```
 
@@ -138,28 +141,64 @@ provenance when automatic resolution was used. A `renv.lock` R version
 and DESCRIPTION `Depends: R` constraint are checked before runtime
 copying or package installation. Existing output is never overwritten.
 
-The lifecycle manager starts the bundled `Rscript`, waits for both a
-versioned launcher event and a real HTTP response, and requests graceful
-shutdown through a private control file. If graceful shutdown times out,
-it asks `processx` to terminate the tracked process and its known tree,
-with a tracked-process kill as fallback. Status reports both the
-processx wrapper `pid` and the launcher-reported `runtime_pid`, which
-can differ for portable R on Windows. Readiness captures a
-create-time-aware handle for the observed runtime PID, and cleanup is
-confirmed only after both captured processes stop. Those observations do
-not independently prove other process-tree membership or descendant
-termination.
+The lifecycle manager starts the bundled `Rscript`, waits for a
+post-bind `listening` event, verifies a real authenticated HTTP
+response, and requests graceful shutdown through a private control file.
+If graceful shutdown times out, it asks `processx` to terminate the
+tracked process and its known tree, with a tracked-process kill as
+fallback. Status reports both the processx wrapper `pid` and the
+launcher-reported `runtime_pid`, which can differ for portable R on
+Windows. Readiness captures a create-time-aware handle for the observed
+runtime PID, and cleanup is confirmed only after both captured processes
+stop. Those observations do not independently prove other process-tree
+membership or descendant termination.
 
-The `start`/`status`/`stop` sequence above is the currently implemented
-and end-to-end-tested lifecycle. It is not yet a Tauri shell or
-executable. The session token is currently a correlation/bootstrap value
-exported as `RPACKIT_SESSION_TOKEN`; it does not authenticate HTTP or
-WebSocket traffic. Only the process handle retains the token-bearing
-`launch_url`; status and print methods expose the token-free loopback
-URL. The manifest and returned status therefore explicitly report
-`network_token_enforced = FALSE`. Network enforcement, Tauri project
-generation, and native executable packaging remain desktop milestones.
-Static-web and server builders also remain milestone work.
+The launcher uses a fresh 256-bit operating-system credential for each
+session. rpackit writes it to a current-account-private, one-time file;
+only that file’s path appears in the child command line, and the
+launcher consumes and deletes the file before app or port validation. On
+Windows, the directory and file DACLs are restricted and verified for
+the current account plus SYSTEM. On POSIX, directory mode 0700 and file
+mode 0600 are verified. The credential is not exported to app
+environment variables and is never placed by rpackit in the URL,
+manifest, generated lifecycle-event fields, returned status, or print
+output. Launcher error messages and returned logs/events are redacted.
+Raw log files are private lifecycle artifacts, not a secrecy boundary:
+trusted app/package code runs in the credential-bearing process and can
+deliberately print the option.
+
+Shiny enforces the credential through the `Shiny-Shared-Secret` request
+header for dynamic HTTP, static resources, and WebSocket session
+acceptance. Missing and wrong HTTP headers receive 403. A WebSocket
+protocol upgrade may return 101, after which Shiny immediately closes an
+unauthenticated socket before the application server starts; the
+attack-surface tests assert positive close evidence. New manifests and
+status objects report `network_token_enforced = TRUE`. Legacy
+unauthenticated bundles remain inspectable with
+[`validate_desktop_bundle()`](https://rpackit.github.io/rpackit/reference/validate_desktop_bundle.md)
+but
+[`start_desktop_app()`](https://rpackit.github.io/rpackit/reference/start_desktop_app.md)
+refuses to launch them.
+
+This is a secure backend launch contract, not yet a stock-browser
+workflow. Browsers cannot add a custom header to top-level navigation or
+ordinary `WebSocket()` calls. A Tauri request interceptor or native
+loopback proxy must keep the credential outside JavaScript, add it to
+every request for the exact `http://127.0.0.1:<port>` origin, and strip
+it before any external redirect. The threat model excludes malicious
+same-user processes, administrator or debugger access, and untrusted
+app/package code running inside the credential- bearing R process. Tauri
+project generation, native executable packaging, static-web builders,
+and server builders remain later milestones.
+
+If process termination succeeds but private lifecycle files cannot be
+removed, the error retains the managed process handle so
+[`stop_desktop_app()`](https://rpackit.github.io/rpackit/reference/stop_desktop_app.md)
+can retry cleanup. Directory applications continue to honor Shiny’s
+`DisplayMode` and `IncludeWWW` `DESCRIPTION` fields. Confirmed cleanup
+clears the credential from the managed process handle and prevents new
+launch configurations; it cannot revoke an already returned R object, so
+native consumers must discard all copies after use.
 
 For a complete Windows walkthrough using the published portable R
 prototype, including SHA-256 verification and lifecycle cleanup, see the
@@ -197,6 +236,8 @@ MIT © Yaoxiang Li
 
 - [`start_desktop_app()`](https://rpackit.github.io/rpackit/reference/start_desktop_app.md)
   : Start a prepared desktop Shiny application
+- [`desktop_app_launch_config()`](https://rpackit.github.io/rpackit/reference/desktop_app_launch_config.md)
+  : Return the authenticated native-shell launch contract
 - [`desktop_app_status()`](https://rpackit.github.io/rpackit/reference/desktop_app_status.md)
   : Inspect a managed desktop application process
 - [`stop_desktop_app()`](https://rpackit.github.io/rpackit/reference/stop_desktop_app.md)
