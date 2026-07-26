@@ -210,7 +210,26 @@
   intToUtf8(code_units)
 }
 
-.desktop_verify_windows_acl <- function(path, sid, directory, icacls) {
+.desktop_windows_acl_fields <- function(dacl) {
+  aces <- regmatches(
+    dacl,
+    gregexpr("\\([^()]+\\)", dacl, perl = TRUE)
+  )[[1L]]
+  lapply(
+    aces,
+    function(ace) {
+      strsplit(substr(ace, 2L, nchar(ace) - 1L), ";", fixed = TRUE)[[1L]]
+    }
+  )
+}
+
+.desktop_verify_windows_acl <- function(
+  path,
+  sid,
+  directory,
+  icacls,
+  expected_dacl = NULL
+) {
   export <- tempfile("rpackit-windows-acl-")
   on.exit(unlink(export, force = TRUE), add = TRUE)
   result <- processx::run(
@@ -229,16 +248,7 @@
     stop("Windows ACL export did not contain a DACL.")
   }
   dacl <- regmatches(text, dacl_match)
-  aces <- regmatches(
-    dacl,
-    gregexpr("\\([^()]+\\)", dacl, perl = TRUE)
-  )[[1L]]
-  fields <- lapply(
-    aces,
-    function(ace) {
-      strsplit(substr(ace, 2L, nchar(ace) - 1L), ";", fixed = TRUE)[[1L]]
-    }
-  )
+  fields <- .desktop_windows_acl_fields(dacl)
   expected_flags <- if (isTRUE(directory)) "OICI" else ""
   valid_fields <- length(fields) == 2L &&
     all(vapply(fields, length, integer(1)) == 6L) &&
@@ -251,9 +261,24 @@
     character()
   }
   trustees[trustees == "S-1-5-18"] <- "SY"
+  expected_trustees <- c("SY", sid)
+  if (!is.null(expected_dacl)) {
+    expected_fields <- .desktop_windows_acl_fields(expected_dacl)
+    if (length(expected_fields) != 2L ||
+        !all(vapply(expected_fields, length, integer(1)) == 6L)) {
+      stop("The expected Windows DACL could not be verified.")
+    }
+    expected_trustees <- vapply(
+      expected_fields,
+      `[[`,
+      character(1),
+      6L
+    )
+    expected_trustees[expected_trustees == "S-1-5-18"] <- "SY"
+  }
   if (!grepl("^D:P", dacl) ||
       !valid_fields ||
-      !setequal(trustees, c("SY", sid))) {
+      !setequal(trustees, expected_trustees)) {
     stop(
       paste0(
         "Windows ACL was not restricted to the current account and SYSTEM.",
@@ -292,6 +317,11 @@
     ")",
     "[System.IO.File]::SetAccessControl($path, $acl)",
     "}",
+    "[Console]::Out.Write(",
+    "$acl.GetSecurityDescriptorSddlForm(",
+    "[System.Security.AccessControl.AccessControlSections]::Access",
+    ")",
+    ")",
     sep = "\n"
   )
   result <- processx::run(
@@ -316,7 +346,11 @@
   if (!identical(result$status, 0L)) {
     stop("Could not set the restricted Windows ACL.")
   }
-  invisible(path)
+  canonical_dacl <- trimws(result$stdout)
+  if (!grepl("^D:P", canonical_dacl)) {
+    stop("Could not obtain the canonical restricted Windows DACL.")
+  }
+  invisible(canonical_dacl)
 }
 
 .desktop_restrict_windows_acl <- function(path, directory) {
@@ -326,8 +360,14 @@
   path <- normalizePath(path, winslash = "/", mustWork = TRUE)
   sid <- .desktop_windows_owner_sid()
   icacls <- .desktop_windows_tool("icacls.exe")
-  .desktop_set_windows_acl(path, sid, directory)
-  .desktop_verify_windows_acl(path, sid, directory, icacls)
+  expected_dacl <- .desktop_set_windows_acl(path, sid, directory)
+  .desktop_verify_windows_acl(
+    path,
+    sid,
+    directory,
+    icacls,
+    expected_dacl = expected_dacl
+  )
   invisible(path)
 }
 
