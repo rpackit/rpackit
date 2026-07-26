@@ -1,3 +1,13 @@
+test_that("default registry uses the runtime repository", {
+  expect_identical(
+    rpackit:::.rpackit_runtime_registry,
+    paste0(
+      "https://raw.githubusercontent.com/rpackit/runtime/",
+      "main/versions.json"
+    )
+  )
+})
+
 make_portable_registry <- function(
   r_version = "4.6.1",
   status = "verified",

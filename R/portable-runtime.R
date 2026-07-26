@@ -1,5 +1,5 @@
 .rpackit_runtime_registry <- paste0(
-  "https://raw.githubusercontent.com/rpackit/portable-r/",
+  "https://raw.githubusercontent.com/rpackit/runtime/",
   "main/versions.json"
 )
 

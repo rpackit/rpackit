@@ -1,5 +1,9 @@
 # rpackit (development version)
 
+- The default portable R registry now uses the concise
+  `rpackit/runtime` repository, and Windows release artifacts are published
+  from `rpackit/runtime-win`. Existing `portable-r-*` artifact and schema names
+  remain unchanged for compatibility.
 - Dependency plans now fail visibly when `renv.lock` omits a required package,
   when a locked package version violates `DESCRIPTION`, or when `Remotes`
   lacks exact lockfile provenance. Remote specifications are not retained in
