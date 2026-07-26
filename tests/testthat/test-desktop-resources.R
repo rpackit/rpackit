@@ -68,7 +68,7 @@ test_that("desktop resources are prepared atomically and validate", {
   )
   expect_true(validation$valid)
   expect_false(validation$dependencies_installed)
-  expect_false(validation$network_token_enforced)
+  expect_true(validation$network_token_enforced)
 })
 
 test_that("desktop manifest records runtime, app, and dependencies honestly", {
@@ -90,21 +90,95 @@ test_that("desktop manifest records runtime, app, and dependencies honestly", {
   expect_identical(manifest$schema_version, "1")
   expect_identical(manifest$app$type, "shiny-single-file")
   expect_identical(manifest$launcher$host, "127.0.0.1")
-  expect_identical(manifest$launcher$protocol_version, "1")
+  expect_identical(manifest$launcher$protocol_version, "2")
+  expect_identical(manifest$launcher$token, "private-file")
   expect_identical(manifest$launcher$control, "optional-argument")
   expect_identical(manifest$launcher$event_stream$format, "ndjson")
   expect_identical(
     manifest$launcher$event_stream$prefix,
     "RPACKIT_EVENT "
   )
-  expect_identical(manifest$launcher$readiness$strategy, "http-poll")
-  expect_false(manifest$launcher$network_token_enforced)
+  expect_identical(
+    manifest$launcher$readiness$strategy,
+    "authenticated-http-poll"
+  )
+  expect_identical(
+    manifest$launcher$readiness$starting_event,
+    "listening"
+  )
+  expect_true(manifest$launcher$network_token_enforced)
+  expect_identical(
+    manifest$launcher$authentication$scheme,
+    "shiny-shared-secret"
+  )
+  expect_identical(
+    manifest$launcher$authentication$header,
+    "Shiny-Shared-Secret"
+  )
+  expect_identical(
+    unlist(manifest$launcher$authentication$scope, use.names = FALSE),
+    c("http", "websocket")
+  )
+  expect_identical(
+    manifest$launcher$authentication$token_transport,
+    "private-file"
+  )
+  expect_false(manifest$launcher$authentication$token_in_url)
   expect_false(manifest$dependencies$installed)
   expect_true(all(
     c("jsonlite", "later", "shiny") %in%
       unlist(manifest$dependencies$packages)
   ))
   expect_match(manifest$runtime$rscript, "^R/")
+})
+
+test_that("legacy bundles require matching protocol-1 launcher content", {
+  app <- make_desktop_app()
+  output <- tempfile("rpackit-legacy-auth-bundle-")
+  prepare_desktop(
+    app,
+    make_fake_runtime(),
+    output_dir = output,
+    install_packages = FALSE,
+    verify_runtime = FALSE,
+    quiet = TRUE
+  )
+  manifest_path <- file.path(output, "resources", "rpackit.json")
+  manifest <- jsonlite::fromJSON(manifest_path, simplifyVector = FALSE)
+  manifest$launcher$protocol_version <- "1"
+  manifest$launcher$token <- "required-argument"
+  manifest$launcher$network_token_enforced <- FALSE
+  manifest$launcher$authentication <- NULL
+  manifest$launcher$readiness <- list(
+    strategy = "http-poll",
+    starting_event = "starting"
+  )
+  jsonlite::write_json(
+    manifest,
+    manifest_path,
+    auto_unbox = TRUE,
+    pretty = TRUE,
+    null = "null"
+  )
+
+  expect_error(
+    validate_desktop_bundle(output, quiet = TRUE),
+    "manifest and launcher contracts do not match"
+  )
+
+  file.copy(
+    testthat::test_path("fixtures", "launcher-protocol-1.R"),
+    file.path(output, "resources", "launcher.R"),
+    overwrite = TRUE
+  )
+  validation <- validate_desktop_bundle(output, quiet = TRUE)
+
+  expect_false(validation$network_token_enforced)
+  expect_error(
+    rpackit:::.desktop_launch_spec(output),
+    "predates enforced network session tokens",
+    class = "rpackit_legacy_desktop_bundle_error"
+  )
 })
 
 test_that("bundle validation accepts legacy schema-v1 runtime metadata", {
@@ -272,13 +346,98 @@ test_that("launcher requires all arguments and binds only to loopback", {
 
   expect_match(launcher, "--app")
   expect_match(launcher, "--port")
-  expect_match(launcher, "--token")
+  expect_match(launcher, "--token-file")
   expect_match(launcher, "--control")
-  expect_match(launcher, "RPACKIT_SESSION_TOKEN")
+  expect_match(launcher, "readLines(token_file, n = 2L", fixed = TRUE)
   expect_match(launcher, "RPACKIT_EVENT")
-  expect_match(launcher, "token_enforced = FALSE", fixed = TRUE)
+  expect_match(launcher, "shiny.sharedSecret = token", fixed = TRUE)
+  expect_match(launcher, "redact_credential", fixed = TRUE)
+  expect_match(launcher, "token_enforced = TRUE", fixed = TRUE)
+  expect_match(launcher, "'listening'", fixed = TRUE)
   expect_match(launcher, "host = '127.0.0.1'", fixed = TRUE)
   expect_false(grepl("0.0.0.0", launcher, fixed = TRUE))
+  expect_false(grepl("RPACKIT_SESSION_TOKEN", launcher, fixed = TRUE))
+  expect_false(grepl("?rpackit_token=", launcher, fixed = TRUE))
+})
+
+test_that("launcher consumes the credential before other validation failures", {
+  launcher <- tempfile("rpackit-launcher-", fileext = ".R")
+  writeLines(rpackit:::.desktop_launcher_lines(), launcher, useBytes = TRUE)
+  rscript <- file.path(
+    R.home("bin"),
+    if (.Platform$OS.type == "windows") "Rscript.exe" else "Rscript"
+  )
+
+  for (contents in list(
+    "valid-session-token-0123456789",
+    c("first-session-token-0123456789", "unexpected-second-line")
+  )) {
+    credential <- tempfile("rpackit-credential-")
+    writeLines(contents, credential, useBytes = TRUE)
+    result <- processx::run(
+      rscript,
+      c(
+        "--vanilla",
+        launcher,
+        "--app", tempfile("missing-rpackit-app-"),
+        "--port", "not-a-port",
+        "--token-file", credential
+      ),
+      error_on_status = FALSE,
+      echo = FALSE,
+      windows_hide_window = TRUE
+    )
+
+    expect_identical(result$status, 1L)
+    expect_false(file.exists(credential))
+  }
+})
+
+test_that("launcher redacts credentials from structured runtime errors", {
+  skip_if_not_installed("shiny")
+  launcher <- tempfile("rpackit-launcher-", fileext = ".R")
+  writeLines(rpackit:::.desktop_launcher_lines(), launcher, useBytes = TRUE)
+  app <- tempfile("rpackit-redaction-app-")
+  dir.create(app)
+  writeLines(
+    c(
+      "shiny::shinyApp(",
+      "  ui = shiny::fluidPage('redaction'),",
+      "  server = function(input, output, session) {},",
+      "  onStart = function() {",
+      "    stop('credential: ', getOption('shiny.sharedSecret'))",
+      "  }",
+      ")"
+    ),
+    file.path(app, "app.R")
+  )
+  credential <- tempfile("rpackit-credential-")
+  token <- "launcher-redaction-token-0123456789"
+  writeLines(token, credential, useBytes = TRUE)
+  rscript <- file.path(
+    R.home("bin"),
+    if (.Platform$OS.type == "windows") "Rscript.exe" else "Rscript"
+  )
+
+  result <- processx::run(
+    rscript,
+    c(
+      "--vanilla",
+      launcher,
+      "--app", app,
+      "--port", "54321",
+      "--token-file", credential
+    ),
+    error_on_status = FALSE,
+    echo = FALSE,
+    windows_hide_window = TRUE
+  )
+  output <- paste(result$stdout, result$stderr, sep = "\n")
+
+  expect_identical(result$status, 1L)
+  expect_false(file.exists(credential))
+  expect_false(grepl(token, output, fixed = TRUE))
+  expect_match(output, "<redacted>", fixed = TRUE)
 })
 
 test_that("runtime probes isolate and restore caller R environment", {
@@ -451,7 +610,7 @@ test_that("bundle validation rejects dishonest manifest state", {
     token_manifest_path,
     simplifyVector = FALSE
   )
-  token_manifest$launcher$network_token_enforced <- TRUE
+  token_manifest$launcher$authentication$header <- "Authorization"
   jsonlite::write_json(
     token_manifest,
     token_manifest_path,
@@ -460,6 +619,6 @@ test_that("bundle validation rejects dishonest manifest state", {
 
   expect_error(
     validate_desktop_bundle(token_output, quiet = TRUE),
-    "does not enforce network tokens"
+    "supported lifecycle"
   )
 })

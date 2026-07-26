@@ -335,12 +335,25 @@
   invisible(destination)
 }
 
+.desktop_minimum_secure_shiny_version <- "1.3.0"
+
+.desktop_authentication_contract <- function() {
+  list(
+    scheme = "shiny-shared-secret",
+    header = "Shiny-Shared-Secret",
+    scope = as.list(c("http", "websocket")),
+    token_transport = "private-file",
+    token_in_url = FALSE,
+    minimum_shiny_version = .desktop_minimum_secure_shiny_version
+  )
+}
+
 .desktop_launcher_lines <- function() {
   c(
     "if (!requireNamespace('jsonlite', quietly = TRUE)) {",
     "  cat(paste0(",
     "    'RPACKIT_EVENT ',",
-    "    '{\"protocol_version\":\"1\",\"event\":\"error\",',",
+    "    '{\"protocol_version\":\"2\",\"event\":\"error\",',",
     "    '\"phase\":\"bootstrap\",',",
     "    '\"message\":\"The bundled runtime does not contain jsonlite.\"}',",
     "    '\\n'",
@@ -348,10 +361,18 @@
     "  quit(save = 'no', status = 1L, runLast = FALSE)",
     "}",
     "event_prefix <- 'RPACKIT_EVENT '",
+    "session_credential <- NULL",
+    "redact_credential <- function(value) {",
+    "  value <- as.character(value)",
+    "  if (is.null(session_credential) || !nzchar(session_credential)) {",
+    "    return(value)",
+    "  }",
+    "  gsub(session_credential, '<redacted>', value, fixed = TRUE)",
+    "}",
     "emit_event <- function(event, fields = list()) {",
     "  payload <- c(",
     "    list(",
-    "      protocol_version = '1',",
+    "      protocol_version = '2',",
     "      event = event,",
     "      timestamp = format(Sys.time(), tz = 'UTC', usetz = TRUE)",
     "    ),",
@@ -379,26 +400,77 @@
     "    launcher_error(",
     "      paste0(",
     "        'Usage: launcher.R --app <path> --port <port> ',",
-    "        '--token <token> [--control <path>]'",
+    "        '--token-file <path> [--control <path>]'",
     "      ),",
     "      'arguments'",
     "    )",
     "  }",
     "  keys <- arguments[seq.int(1L, length(arguments), by = 2L)]",
     "  values <- arguments[seq.int(2L, length(arguments), by = 2L)]",
-    "  required <- c('--app', '--port', '--token')",
+    "  required <- c('--app', '--port', '--token-file')",
     "  allowed <- c(required, '--control')",
     "  if (anyDuplicated(keys) || !all(required %in% keys) ||",
     "      any(!keys %in% allowed)) {",
     "    launcher_error(",
     "      paste0(",
-    "        'Exactly one --app, --port, and --token argument is required; ',",
+    "        'Exactly one --app, --port, and --token-file is required; ',",
     "        '--control may appear once.'",
     "      ),",
     "      'arguments'",
     "    )",
     "  }",
     "  options <- stats::setNames(values, keys)",
+    "  token_file <- options[['--token-file']]",
+    "  if (is.na(token_file) || !nzchar(token_file) ||",
+    "      grepl('[\\r\\n]', token_file) || !file.exists(token_file) ||",
+    "      dir.exists(token_file)) {",
+    "    launcher_error(",
+    "      '--token-file must identify an existing regular file.',",
+    "      'token'",
+    "    )",
+    "  }",
+    "  token_file <- normalizePath(",
+    "    token_file,",
+    "    winslash = '/',",
+    "    mustWork = TRUE",
+    "  )",
+    "  token_read_error <- NULL",
+    "  token_lines <- tryCatch(",
+    "    readLines(token_file, n = 2L, warn = FALSE),",
+    "    error = function(error) {",
+    "      token_read_error <<- error",
+    "      character()",
+    "    }",
+    "  )",
+    "  token_removed <- unlink(token_file, force = TRUE)",
+    "  if (token_removed != 0L || file.exists(token_file)) {",
+    "    launcher_error(",
+    "      'The one-time token file could not be removed.',",
+    "      'token'",
+    "    )",
+    "  }",
+    "  if (!is.null(token_read_error)) {",
+    "    launcher_error(",
+    "      'The one-time token file could not be read.',",
+    "      'token'",
+    "    )",
+    "  }",
+    "  if (length(token_lines) != 1L) {",
+    "    launcher_error(",
+    "      'The token file must contain exactly one session-token line.',",
+    "      'token'",
+    "    )",
+    "  }",
+    "  token <- token_lines[[1L]]",
+    "  if (is.na(token) || nchar(token, type = 'bytes') < 16L ||",
+    "      nchar(token, type = 'bytes') > 256L ||",
+    "      !grepl('^[A-Za-z0-9._~-]+$', token)) {",
+    "    launcher_error(",
+    "      'The session token must contain 16 to 256 URL-safe ASCII characters.',",
+    "      'token'",
+    "    )",
+    "  }",
+    "  session_credential <<- token",
     "  app <- options[['--app']]",
     "  if (!dir.exists(app)) {",
     "    launcher_error('The application directory does not exist.', 'app')",
@@ -419,16 +491,11 @@
     "      'arguments'",
     "    )",
     "  }",
-    "  token <- options[['--token']]",
-    "  if (is.na(token) || nchar(token, type = 'bytes') < 16L ||",
-    "      nchar(token, type = 'bytes') > 256L ||",
-    "      !grepl('^[A-Za-z0-9._~-]+$', token)) {",
-    "    launcher_error(",
-    "      '--token must contain 16 to 256 URL-safe ASCII characters.',",
-    "      'arguments'",
-    "    )",
+    "  control <- if ('--control' %in% names(options)) {",
+    "    options[['--control']]",
+    "  } else {",
+    "    NULL",
     "  }",
-    "  control <- options[['--control']]",
     "  if (!is.null(control)) {",
     "    if (is.na(control) || !nzchar(control) || grepl('[\\r\\n]', control)) {",
     "      launcher_error('--control must be a usable path.', 'arguments')",
@@ -465,6 +532,12 @@
     "      'runtime'",
     "    )",
     "  }",
+    "  if (utils::packageVersion('shiny') < '1.3.0') {",
+    "    launcher_error(",
+    "      \"The bundled runtime requires shiny 1.3.0 or newer.\",",
+    "      'runtime'",
+    "    )",
+    "  }",
     "  if (!is.null(control) &&",
     "      !requireNamespace('later', quietly = TRUE)) {",
     "    launcher_error(",
@@ -472,7 +545,26 @@
     "      'runtime'",
     "    )",
     "  }",
-    "  Sys.setenv(RPACKIT_SESSION_TOKEN = token)",
+    "  app_object <- shiny::as.shiny.appobj(app)",
+    "  app_on_start <- app_object$onStart",
+    "  app_object$onStart <- function() {",
+    "    if (!is.null(app_on_start)) {",
+    "      app_on_start()",
+    "    }",
+    "    options(shiny.sharedSecret = token)",
+    "    invisible(NULL)",
+    "  }",
+    "  app_argument <- structure(",
+    "    app,",
+    "    class = c('rpackit_authenticated_app_path', 'character')",
+    "  )",
+    "  registerS3method(",
+    "    'as.shiny.appobj',",
+    "    'rpackit_authenticated_app_path',",
+    "    function(x) app_object,",
+    "    envir = asNamespace('shiny')",
+    "  )",
+    "  options(shiny.sharedSecret = token)",
     "  if (!is.null(control)) {",
     "    watch_control <- NULL",
     "    watch_control <- function() {",
@@ -492,15 +584,27 @@
     "      pid = Sys.getpid(),",
     "      host = '127.0.0.1',",
     "      port = port,",
-    "      token_enforced = FALSE,",
+    "      token_enforced = TRUE,",
     "      graceful_stop = !is.null(control)",
     "    )",
     "  )",
+    "  announce_listening <- function(url) {",
+    "    emit_event(",
+    "      'listening',",
+    "      list(",
+    "        pid = Sys.getpid(),",
+    "        host = '127.0.0.1',",
+    "        port = port,",
+    "        token_enforced = TRUE",
+    "      )",
+    "    )",
+    "    invisible(NULL)",
+    "  }",
     "  shiny::runApp(",
-    "    app,",
+    "    app_argument,",
     "    host = '127.0.0.1',",
     "    port = port,",
-    "    launch.browser = FALSE,",
+    "    launch.browser = announce_listening,",
     "    quiet = TRUE",
     "  )",
     "  emit_event('stopped', list(pid = Sys.getpid()))",
@@ -514,15 +618,16 @@
     "    } else {",
     "      'runtime'",
     "    }",
+    "    error_message <- redact_credential(conditionMessage(error))",
     "    emit_event(",
     "      'error',",
     "      list(",
     "        phase = phase,",
-    "        message = conditionMessage(error),",
+    "        message = error_message,",
     "        pid = Sys.getpid()",
     "      )",
     "    )",
-    "    message('rpackit launcher error: ', conditionMessage(error))",
+    "    message('rpackit launcher error: ', error_message)",
     "    quit(save = 'no', status = 1L, runLast = FALSE)",
     "  }",
     ")"
@@ -617,6 +722,19 @@
     "    paste(missing, collapse = ', '),",
     "    call. = FALSE",
     "  )",
+    "}",
+    sprintf(
+      "minimum_shiny_version <- %s",
+      .desktop_r_literal(.desktop_minimum_secure_shiny_version)
+    ),
+    "if (utils::packageVersion('shiny', lib.loc = library_path) <",
+    "    utils::package_version(minimum_shiny_version)) {",
+    "  stop(",
+    "    'Bundled shiny must be version ',",
+    "    minimum_shiny_version,",
+    "    ' or newer.',",
+    "    call. = FALSE",
+    "  )",
     "}"
   )
   writeLines(lines, script, useBytes = TRUE)
@@ -671,18 +789,19 @@
       script = "launcher.R",
       host = "127.0.0.1",
       port = "required-argument",
-      token = "required-argument",
+      token = "private-file",
       control = "optional-argument",
-      protocol_version = "1",
+      protocol_version = "2",
       event_stream = list(
         format = "ndjson",
         destination = "stdout",
         prefix = "RPACKIT_EVENT "
       ),
-      network_token_enforced = FALSE,
+      network_token_enforced = TRUE,
+      authentication = .desktop_authentication_contract(),
       readiness = list(
-        strategy = "http-poll",
-        starting_event = "starting"
+        strategy = "authenticated-http-poll",
+        starting_event = "listening"
       )
     ),
     dependencies = list(
@@ -723,13 +842,17 @@
 #' available. The lockfile R version and DESCRIPTION R constraint are checked
 #' against the selected runtime before copying it or installing packages.
 #'
-#' The generated launcher accepts `--app`, `--port`, and `--token`, plus an
-#' optional private `--control` path used for graceful shutdown. It binds Shiny
-#' only to `127.0.0.1`, exports the token to the application as
-#' `RPACKIT_SESSION_TOKEN`, and emits versioned lifecycle events. Network-level
-#' token enforcement belongs to the desktop shell/proxy and is deliberately
-#' recorded as not yet implemented in `rpackit.json`; this function does not
-#' claim to produce a Tauri executable.
+#' The generated launcher accepts `--app`, `--port`, and a one-time
+#' current-account-private
+#' `--token-file`, plus an optional private `--control` path used for graceful
+#' shutdown. It consumes and deletes the credential before validating the app
+#' or port, binds Shiny only to `127.0.0.1`, and enforces that credential
+#' through Shiny's
+#' `Shiny-Shared-Secret` checks for HTTP, static resources, and WebSockets.
+#' Dynamic HTTP and WebSocket comparisons are constant-time. The manifest
+#' records this authenticated transport explicitly.
+#' This function still prepares resources; it does not claim to produce a
+#' Tauri executable or a browser-compatible header injector.
 #'
 #' Build inputs are never modified. Output is assembled in a sibling staging
 #' directory and renamed into place only after validation. Existing output is
@@ -989,7 +1112,8 @@ prepare_desktop <- function(
   path
 }
 
-.desktop_verify_packages <- function(rscript, library, packages) {
+.desktop_verify_packages <- function(rscript, library, packages,
+                                     minimum_shiny_version = NULL) {
   packages <- unlist(packages, use.names = FALSE)
   if (!is.character(packages) || !length(packages) || anyNA(packages) ||
       any(!grepl("^[A-Za-z][A-Za-z0-9.]*$", packages))) {
@@ -1011,7 +1135,26 @@ prepare_desktop <- function(
       "    paste(missing, collapse = ', '),",
       "    call. = FALSE",
       "  )",
-      "}"
+      "}",
+      if (!is.null(minimum_shiny_version)) {
+        c(
+          sprintf(
+            "minimum_shiny_version <- %s",
+            .desktop_r_literal(minimum_shiny_version)
+          ),
+          "if (utils::packageVersion('shiny', lib.loc = library_path) <",
+          "    utils::package_version(minimum_shiny_version)) {",
+          "  stop(",
+          "    'Bundled shiny must be version ',",
+          "    minimum_shiny_version,",
+          "    ' or newer.',",
+          "    call. = FALSE",
+          "  )",
+          "}"
+        )
+      } else {
+        character()
+      }
     ),
     script,
     useBytes = TRUE
@@ -1025,27 +1168,45 @@ prepare_desktop <- function(
 }
 
 .desktop_validate_lifecycle_contract <- function(manifest) {
-  if (!identical(manifest$launcher$protocol_version, "1") ||
-      !identical(manifest$launcher$control, "optional-argument") ||
-      !identical(manifest$launcher$event_stream$format, "ndjson") ||
-      !identical(
-        manifest$launcher$event_stream$destination,
-        "stdout"
-      ) ||
-      !identical(
-        manifest$launcher$event_stream$prefix,
-        "RPACKIT_EVENT "
-      ) ||
-      !identical(
-        manifest$launcher$readiness$strategy,
-        "http-poll"
-      ) ||
-      !identical(
-        manifest$launcher$readiness$starting_event,
-        "starting"
-      )) {
+  launcher <- manifest$launcher
+  common <- identical(launcher$control, "optional-argument") &&
+    identical(launcher$event_stream$format, "ndjson") &&
+    identical(launcher$event_stream$destination, "stdout") &&
+    identical(launcher$event_stream$prefix, "RPACKIT_EVENT ")
+  legacy <- identical(launcher$protocol_version, "1") &&
+    identical(launcher$token, "required-argument") &&
+    identical(launcher$readiness$strategy, "http-poll") &&
+    identical(launcher$readiness$starting_event, "starting") &&
+    identical(launcher$network_token_enforced, FALSE)
+  authentication <- launcher$authentication
+  scope <- if (is.list(authentication$scope)) {
+    unlist(authentication$scope, use.names = FALSE)
+  } else {
+    NULL
+  }
+  secure_authentication <-
+    identical(authentication$scheme, "shiny-shared-secret") &&
+    identical(authentication$header, "Shiny-Shared-Secret") &&
+    identical(scope, c("http", "websocket")) &&
+    identical(authentication$token_transport, "private-file") &&
+    identical(authentication$token_in_url, FALSE) &&
+    identical(
+      authentication$minimum_shiny_version,
+      .desktop_minimum_secure_shiny_version
+    )
+  secure <- identical(launcher$protocol_version, "2") &&
+    identical(launcher$token, "private-file") &&
+    identical(
+      launcher$readiness$strategy,
+      "authenticated-http-poll"
+    ) &&
+    identical(launcher$readiness$starting_event, "listening") &&
+    identical(launcher$network_token_enforced, TRUE) &&
+    secure_authentication
+  if (!common || (!legacy && !secure)) {
     cli::cli_abort(
-      "Desktop manifest does not provide lifecycle protocol version 1."
+      "Desktop manifest does not provide a supported lifecycle and ",
+      "authentication contract."
     )
   }
   invisible(manifest)
@@ -1103,7 +1264,6 @@ validate_desktop_bundle <- function(bundle_dir, verify_runtime = FALSE,
   if (!identical(manifest$launcher$host, "127.0.0.1")) {
     cli::cli_abort("Desktop launcher host must be 127.0.0.1.")
   }
-  .desktop_validate_lifecycle_contract(manifest)
   if (!is.logical(manifest$launcher$network_token_enforced) ||
       length(manifest$launcher$network_token_enforced) != 1L ||
       is.na(manifest$launcher$network_token_enforced)) {
@@ -1111,12 +1271,7 @@ validate_desktop_bundle <- function(bundle_dir, verify_runtime = FALSE,
       "Desktop manifest must explicitly record network token enforcement."
     )
   }
-  if (isTRUE(manifest$launcher$network_token_enforced)) {
-    cli::cli_abort(
-      "This resource-stage launcher does not enforce network tokens; ",
-      "{.field launcher.network_token_enforced} must be false."
-    )
-  }
+  .desktop_validate_lifecycle_contract(manifest)
   if (!is.logical(manifest$dependencies$installed) ||
       length(manifest$dependencies$installed) != 1L ||
       is.na(manifest$dependencies$installed)) {
@@ -1138,6 +1293,63 @@ validate_desktop_bundle <- function(bundle_dir, verify_runtime = FALSE,
   if (grepl("0\\.0\\.0\\.0", launcher_text) ||
       !grepl("host\\s*=\\s*['\"]127\\.0\\.0\\.1['\"]", launcher_text)) {
     cli::cli_abort("Desktop launcher violates the loopback-only contract.")
+  }
+  if (isTRUE(manifest$launcher$network_token_enforced)) {
+    required_markers <- c(
+      "--token-file <path>",
+      "readLines(token_file, n = 2L",
+      "options(shiny.sharedSecret = token)",
+      "rpackit_authenticated_app_path",
+      "token_enforced = TRUE",
+      "launch.browser = announce_listening"
+    )
+    if (any(!vapply(
+      required_markers,
+      grepl,
+      logical(1),
+      x = launcher_text,
+      fixed = TRUE
+    )) ||
+        grepl("RPACKIT_SESSION_TOKEN", launcher_text, fixed = TRUE) ||
+        grepl("?rpackit_token=", launcher_text, fixed = TRUE)) {
+      cli::cli_abort(
+        "Desktop launcher does not implement its declared authenticated ",
+        "transport contract."
+      )
+    }
+  } else {
+    required_markers <- c(
+      "--token <token>",
+      "required <- c('--app', '--port', '--token')",
+      "Sys.setenv(RPACKIT_SESSION_TOKEN = token)",
+      "token_enforced = FALSE",
+      "launch.browser = FALSE"
+    )
+    forbidden_markers <- c(
+      "--token-file",
+      "shiny.sharedSecret",
+      "rpackit_authenticated_app_path",
+      "token_enforced = TRUE",
+      "'listening'"
+    )
+    if (any(!vapply(
+      required_markers,
+      grepl,
+      logical(1),
+      x = launcher_text,
+      fixed = TRUE
+    )) ||
+        any(vapply(
+          forbidden_markers,
+          grepl,
+          logical(1),
+          x = launcher_text,
+          fixed = TRUE
+        ))) {
+      cli::cli_abort(
+        "Legacy desktop manifest and launcher contracts do not match."
+      )
+    }
   }
   app <- .desktop_safe_manifest_path(
     resources,
@@ -1271,7 +1483,14 @@ validate_desktop_bundle <- function(bundle_dir, verify_runtime = FALSE,
       .desktop_verify_packages(
         rscript,
         library,
-        manifest$dependencies$packages
+        manifest$dependencies$packages,
+        minimum_shiny_version = if (
+          isTRUE(manifest$launcher$network_token_enforced)
+        ) {
+          .desktop_minimum_secure_shiny_version
+        } else {
+          NULL
+        }
       )
     }
   }
@@ -1328,7 +1547,7 @@ print.rpackit_desktop_validation <- function(x, ...) {
   cli::cli_text("Loopback host: 127.0.0.1")
   cli::cli_text(
     "Network token enforcement: ",
-    "{if (x$network_token_enforced) 'yes' else 'not yet implemented'}"
+    "{if (x$network_token_enforced) 'yes' else 'legacy bundle (launch blocked)'}"
   )
   invisible(x)
 }

@@ -16,7 +16,7 @@ lines to return.}
 \value{
 An \code{rpackit_desktop_status} object. Its \code{url} is the token-free
 loopback endpoint; the object never contains the session token or
-sensitive launch URL.
+authenticated launch headers.
 }
 \description{
 \code{pid} is the process tracked by \code{processx}; \code{runtime_pid} is the positive PID

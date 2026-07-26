@@ -3,7 +3,10 @@ make_lifecycle_app <- function(code = NULL) {
   dir.create(path)
   if (is.null(code)) {
     code <- c(
-      "message('app token: ', Sys.getenv('RPACKIT_SESSION_TOKEN'))",
+      "message(",
+      "  'credential environment present: ',",
+      "  nzchar(Sys.getenv('RPACKIT_SESSION_TOKEN'))",
+      ")",
       "shiny::shinyApp(",
       "  ui = shiny::fluidPage('rpackit ready'),",
       "  server = function(input, output, session) {}",
@@ -46,7 +49,9 @@ make_lifecycle_spec <- function(app, event_pid_offset = 0L) {
     library = dirname(find.package("shiny")),
     app = app,
     launcher = launcher,
-    manifest = list()
+    manifest = list(
+      launcher = list(network_token_enforced = TRUE)
+    )
   )
 }
 
@@ -68,6 +73,148 @@ mock_lifecycle_spec <- function(spec, .env = parent.frame()) {
     .package = "rpackit",
     .env = .env
   )
+}
+
+desktop_http_status <- function(port, token = NULL, path = "/",
+                                method = "GET") {
+  connection <- socketConnection(
+    host = "127.0.0.1",
+    port = port,
+    server = FALSE,
+    blocking = TRUE,
+    open = "r+b",
+    timeout = 2L
+  )
+  on.exit(close(connection), add = TRUE)
+  authentication <- if (is.null(token)) {
+    ""
+  } else {
+    paste0("Shiny-Shared-Secret: ", token, "\r\n")
+  }
+  request <- paste0(
+    method,
+    " ",
+    path,
+    " HTTP/1.1\r\n",
+    "Host: 127.0.0.1:",
+    port,
+    "\r\n",
+    authentication,
+    "Connection: close\r\n\r\n"
+  )
+  writeBin(charToRaw(request), connection)
+  flush(connection)
+  status_line <- readLines(connection, n = 1L, warn = FALSE)
+  if (!length(status_line)) {
+    return(NA_integer_)
+  }
+  as.integer(sub(
+    "^HTTP/[0-9.]+ ([0-9]{3}).*$",
+    "\\1",
+    status_line[[1L]]
+  ))
+}
+
+desktop_websocket_connect <- function(port, token = NULL) {
+  connection <- socketConnection(
+    host = "127.0.0.1",
+    port = port,
+    server = FALSE,
+    blocking = TRUE,
+    open = "r+b",
+    timeout = 2L
+  )
+  authentication <- if (is.null(token)) {
+    ""
+  } else {
+    paste0("Shiny-Shared-Secret: ", token, "\r\n")
+  }
+  request <- paste0(
+    "GET /websocket/ HTTP/1.1\r\n",
+    "Host: 127.0.0.1:",
+    port,
+    "\r\n",
+    "Origin: http://127.0.0.1:",
+    port,
+    "\r\n",
+    "Upgrade: websocket\r\n",
+    "Connection: Upgrade\r\n",
+    "Sec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==\r\n",
+    "Sec-WebSocket-Version: 13\r\n",
+    authentication,
+    "\r\n"
+  )
+  writeBin(charToRaw(request), connection)
+  flush(connection)
+  status_line <- readLines(connection, n = 1L, warn = FALSE)
+  repeat {
+    line <- readLines(connection, n = 1L, warn = FALSE)
+    if (!length(line) || !nzchar(line[[1L]])) {
+      break
+    }
+  }
+  status <- if (length(status_line)) {
+    as.integer(sub(
+      "^HTTP/[0-9.]+ ([0-9]{3}).*$",
+      "\\1",
+      status_line[[1L]]
+    ))
+  } else {
+    NA_integer_
+  }
+  list(connection = connection, status = status)
+}
+
+desktop_websocket_send_text <- function(connection, text) {
+  payload <- charToRaw(enc2utf8(text))
+  length <- length(payload)
+  if (length <= 125L) {
+    header <- as.raw(c(0x81L, 0x80L + length))
+  } else if (length <= 65535L) {
+    header <- as.raw(c(
+      0x81L,
+      0x80L + 126L,
+      bitwShiftR(length, 8L),
+      bitwAnd(length, 0xffL)
+    ))
+  } else {
+    stop("Test WebSocket payload is unexpectedly large.")
+  }
+  mask <- as.raw(c(0x21L, 0x43L, 0x65L, 0x87L))
+  masked <- as.raw(bitwXor(
+    as.integer(payload),
+    rep(as.integer(mask), length.out = length)
+  ))
+  writeBin(c(header, mask, masked), connection)
+  flush(connection)
+  invisible(NULL)
+}
+
+desktop_websocket_rejected <- function(connection, timeout = 2) {
+  readable <- tryCatch(
+    socketSelect(list(connection), write = FALSE, timeout = timeout),
+    error = function(error) FALSE
+  )
+  if (!length(readable) || !isTRUE(readable[[1L]])) {
+    return(FALSE)
+  }
+  header <- tryCatch(
+    readBin(connection, what = "raw", n = 2L),
+    error = function(error) raw()
+  )
+  if (!length(header)) {
+    return(TRUE)
+  }
+  length(header) >= 1L &&
+    bitwAnd(as.integer(header[[1L]]), 0x0fL) == 0x08L
+}
+
+desktop_wait_for_file <- function(path, timeout = 2) {
+  deadline <- unclass(Sys.time()) + timeout
+  while (!file.exists(path) && unclass(Sys.time()) < deadline) {
+    Sys.sleep(0.02)
+  }
+  file.exists(path)
 }
 
 test_that("prepared bundles expose the versioned lifecycle launch spec", {
@@ -93,7 +240,7 @@ test_that("prepared bundles expose the versioned lifecycle launch spec", {
   expect_true(file.exists(spec$rscript))
   expect_true(dir.exists(spec$library))
   expect_true(dir.exists(spec$app))
-  expect_identical(spec$manifest$launcher$protocol_version, "1")
+  expect_identical(spec$manifest$launcher$protocol_version, "2")
   expect_error(
     rpackit:::.desktop_session_token("not long enough"),
     "URL-safe ASCII"
@@ -116,11 +263,11 @@ test_that("prepared bundles expose the versioned lifecycle launch spec", {
   )
   expect_error(
     validate_desktop_bundle(output, quiet = TRUE),
-    "lifecycle protocol version 1"
+    "supported lifecycle"
   )
   expect_error(
     rpackit:::.desktop_launch_spec(output),
-    "lifecycle protocol version 1"
+    "supported lifecycle"
   )
 })
 
@@ -154,14 +301,54 @@ test_that("managed lifecycle reaches HTTP readiness and stops gracefully", {
   expect_true(status$runtime_alive)
   expect_identical(status$host, "127.0.0.1")
   expect_true(status$port >= 49152L)
-  expect_false(status$network_token_enforced)
+  expect_true(status$network_token_enforced)
   expect_false("token" %in% names(status))
   expect_identical(
     status$endpoint,
     paste0("http://127.0.0.1:", status$port, "/")
   )
   expect_identical(status$url, status$endpoint)
-  expect_match(process$launch_url, "rpackit_token=", fixed = TRUE)
+  expect_false(file.exists(process$credential_path))
+  expect_identical(process$launch_url, status$endpoint)
+  launch <- desktop_app_launch_config(process)
+  expect_s3_class(launch, "rpackit_desktop_launch_config")
+  expect_identical(launch$url, status$endpoint)
+  expect_identical(launch$origin, sub("/$", "", status$endpoint))
+  expect_identical(
+    unname(launch$headers[["Shiny-Shared-Secret"]]),
+    session_token
+  )
+  expect_false(launch$follow_redirects)
+  expect_false(any(grepl(
+    session_token,
+    capture.output(print(launch), type = "message"),
+    fixed = TRUE
+  )))
+  expect_match(
+    paste(c(status$stdout, status$stderr), collapse = "\n"),
+    "credential environment present: FALSE"
+  )
+  expect_identical(desktop_http_status(status$port), 403L)
+  expect_identical(
+    desktop_http_status(status$port, "wrong-session-token-0123456789"),
+    403L
+  )
+  expect_identical(
+    desktop_http_status(status$port, session_token),
+    200L
+  )
+  expect_identical(
+    desktop_http_status(status$port, path = "/shared/shiny.min.css"),
+    403L
+  )
+  expect_identical(
+    desktop_http_status(
+      status$port,
+      session_token,
+      "/shared/shiny.min.css"
+    ),
+    200L
+  )
   flattened_status <- unlist(
     status,
     recursive = TRUE,
@@ -182,13 +369,33 @@ test_that("managed lifecycle reaches HTTP readiness and stops gracefully", {
     capture.output(print(status), type = "message"),
     fixed = TRUE
   )))
+  expect_false(any(grepl(
+    session_token,
+    process$process$get_cmdline(),
+    fixed = TRUE
+  )))
+  expect_false(any(grepl(
+    session_token,
+    c(
+      readLines(process$stdout_path, warn = FALSE),
+      readLines(process$stderr_path, warn = FALSE)
+    ),
+    fixed = TRUE
+  )))
   starting <- Filter(
     function(event) identical(event$event, "starting"),
     status$events
   )
   expect_length(starting, 1L)
-  expect_false(starting[[1L]]$token_enforced)
+  expect_true(starting[[1L]]$token_enforced)
   expect_false("token" %in% names(starting[[1L]]))
+  listening <- Filter(
+    function(event) identical(event$event, "listening"),
+    status$events
+  )
+  expect_length(listening, 1L)
+  expect_true(listening[[1L]]$token_enforced)
+  expect_false("token" %in% names(listening[[1L]]))
 
   session_dir <- process$session_dir
   if (.Platform$OS.type != "windows") {
@@ -214,12 +421,21 @@ test_that("managed lifecycle reaches HTTP readiness and stops gracefully", {
   expect_true(is.na(stopped$descendant_cleanup_confirmed))
   expect_false(process$process$is_alive())
   expect_false(dir.exists(session_dir))
+  expect_null(process$token)
+  expect_null(process$launch_headers)
+  expect_null(process$launch_url)
+  expect_error(
+    desktop_app_launch_config(process),
+    "must be ready and running"
+  )
   stopped_events <- vapply(
     stopped$events,
     function(event) event$event,
     character(1)
   )
-  expect_true(all(c("starting", "stopping", "stopped") %in% stopped_events))
+  expect_true(all(
+    c("starting", "listening", "stopping", "stopped") %in% stopped_events
+  ))
 
   repeated <- stop_desktop_app(process, quiet = TRUE)
   expect_identical(repeated$state, "stopped")
@@ -232,12 +448,117 @@ test_that("managed lifecycle reaches HTTP readiness and stops gracefully", {
   expect_true("stopped" %in% repeated_events)
 })
 
-test_that("readiness survives noisy startup and redacts event field names", {
+test_that("authenticated launch preserves directory DESCRIPTION semantics", {
+  skip_if_not_installed("shiny")
+  marker <- tempfile("rpackit-description-semantics-")
+  marker_literal <- paste(utils::capture.output(dput(marker)), collapse = "")
+  app <- make_lifecycle_app(c(
+    paste0("marker <- ", marker_literal),
+    "shiny::shinyApp(",
+    "  ui = shiny::fluidPage('description semantics'),",
+    "  server = function(input, output, session) {},",
+    "  onStart = function() {",
+    "    globals <- get('.globals', envir = asNamespace('shiny'))",
+    "    writeLines(",
+    "      paste(globals$showcaseDefault, globals$IncludeWWW),",
+    "      marker",
+    "    )",
+    "  }",
+    ")"
+  ))
+  writeLines(
+    c(
+      "Title: rpackit DESCRIPTION semantics fixture",
+      "DisplayMode: Showcase",
+      "IncludeWWW: False"
+    ),
+    file.path(app, "DESCRIPTION")
+  )
+  spec <- make_lifecycle_spec(app)
+  mock_lifecycle_spec(spec)
+  process <- start_desktop_app(spec$bundle, timeout = 15, quiet = TRUE)
+  on.exit({
+    if (isTRUE(process$process$is_alive())) {
+      stop_desktop_app(process, timeout = 1, quiet = TRUE)
+    }
+  }, add = TRUE)
+
+  expect_true(desktop_wait_for_file(marker))
+  expect_identical(readLines(marker, warn = FALSE), "1 FALSE")
+
+  stopped <- stop_desktop_app(process, timeout = 5, quiet = TRUE)
+  expect_identical(stopped$state, "stopped")
+})
+
+test_that("WebSocket sessions require the same request-header credential", {
+  skip_if_not_installed("shiny")
+  marker <- tempfile("rpackit-websocket-session-")
+  marker_literal <- paste(utils::capture.output(dput(marker)), collapse = "")
+  app <- make_lifecycle_app(c(
+    paste0("marker <- ", marker_literal),
+    "shiny::shinyApp(",
+    "  ui = shiny::fluidPage('authenticated websocket'),",
+    "  server = function(input, output, session) {",
+    "    writeLines('started', marker)",
+    "  }",
+    ")"
+  ))
+  spec <- make_lifecycle_spec(app)
+  mock_lifecycle_spec(spec)
+  process <- start_desktop_app(spec$bundle, timeout = 15, quiet = TRUE)
+  token <- process$token
+  on.exit({
+    if (isTRUE(process$process$is_alive())) {
+      stop_desktop_app(process, timeout = 1, quiet = TRUE)
+    }
+  }, add = TRUE)
+
+  missing <- desktop_websocket_connect(process$port)
+  expect_identical(missing$status, 101L)
+  try(
+    desktop_websocket_send_text(
+      missing$connection,
+      '{"method":"init","data":{}}'
+    ),
+    silent = TRUE
+  )
+  expect_true(desktop_websocket_rejected(missing$connection))
+  expect_false(file.exists(marker))
+  try(close(missing$connection), silent = TRUE)
+
+  wrong <- desktop_websocket_connect(
+    process$port,
+    "wrong-session-token-0123456789"
+  )
+  expect_identical(wrong$status, 101L)
+  try(
+    desktop_websocket_send_text(
+      wrong$connection,
+      '{"method":"init","data":{}}'
+    ),
+    silent = TRUE
+  )
+  expect_true(desktop_websocket_rejected(wrong$connection))
+  expect_false(file.exists(marker))
+  try(close(wrong$connection), silent = TRUE)
+
+  authenticated <- desktop_websocket_connect(process$port, token)
+  expect_identical(authenticated$status, 101L)
+  desktop_websocket_send_text(
+    authenticated$connection,
+    '{"method":"init","data":{}}'
+  )
+  expect_true(desktop_wait_for_file(marker))
+  try(close(authenticated$connection), silent = TRUE)
+
+  stopped <- stop_desktop_app(process, timeout = 5, quiet = TRUE)
+  expect_identical(stopped$state, "stopped")
+})
+
+test_that("authenticated readiness survives noisy application startup", {
   skip_if_not_installed("shiny")
   app <- make_lifecycle_app(c(
-    "token <- Sys.getenv('RPACKIT_SESSION_TOKEN')",
-    "payload <- list(protocol_version = '1', event = 'app-note')",
-    "payload[[token]] <- token",
+    "payload <- list(protocol_version = '2', event = 'app-note')",
     "cat(",
     "  'RPACKIT_EVENT ',",
     "  jsonlite::toJSON(payload, auto_unbox = TRUE),",
@@ -322,24 +643,24 @@ test_that("launcher runtime PID may differ from the processx wrapper PID", {
   handle$pid <- as.integer(Sys.getpid() + 1L)
   handle$port <- 54321L
   events <- list(list(
-    protocol_version = "1",
-    event = "starting",
+    protocol_version = "2",
+    event = "listening",
     pid = Sys.getpid(),
     host = "127.0.0.1",
     port = handle$port,
-    token_enforced = FALSE
+    token_enforced = TRUE
   ))
 
-  starting <- rpackit:::.desktop_matching_starting_event(
+  listening <- rpackit:::.desktop_matching_listening_event(
     events,
     handle
   )
   runtime_process <- rpackit:::.desktop_runtime_process(
-    starting$runtime_pid
+    listening$runtime_pid
   )
 
-  expect_identical(starting$runtime_pid, as.integer(Sys.getpid()))
-  expect_false(identical(starting$runtime_pid, handle$pid))
+  expect_identical(listening$runtime_pid, as.integer(Sys.getpid()))
+  expect_false(identical(listening$runtime_pid, handle$pid))
   expect_false(is.null(runtime_process))
   expect_true(ps::ps_is_running(runtime_process))
 })
@@ -368,6 +689,105 @@ test_that("observed runtime liveness gates cleanup and overall liveness", {
   runtime_state <- FALSE
   expect_false(rpackit:::.desktop_managed_alive(handle))
   expect_true(rpackit:::.desktop_cleanup_confirmed(handle))
+})
+
+test_that("Windows lifecycle paths receive verified account-private ACLs", {
+  skip_if(.Platform$OS.type != "windows")
+  session <- tempfile("rpackit-windows-acl-test-")
+  expect_true(dir.create(session))
+  on.exit(unlink(session, recursive = TRUE, force = TRUE), add = TRUE)
+
+  expect_silent(
+    rpackit:::.desktop_restrict_windows_acl(session, directory = TRUE)
+  )
+  credential <- file.path(session, "credential")
+  writeLines("private-session-token-0123456789", credential)
+  expect_silent(
+    rpackit:::.desktop_restrict_windows_acl(
+      credential,
+      directory = FALSE
+    )
+  )
+})
+
+test_that("startup cleanup failures retain a retryable process handle", {
+  session <- tempfile("rpackit-retained-cleanup-")
+  expect_true(dir.create(session))
+  on.exit(unlink(session, recursive = TRUE, force = TRUE), add = TRUE)
+  process <- new.env(parent = emptyenv())
+  process$is_alive <- function() FALSE
+  handle <- new.env(parent = emptyenv())
+  handle$process <- process
+  handle$pid <- 123L
+  handle$runtime_process <- NULL
+  handle$bundle <- "bundle"
+  handle$token <- "private-session-token-0123456789"
+  handle$launch_headers <- c(
+    `Shiny-Shared-Secret` = handle$token
+  )
+  handle$launch_url <- "http://127.0.0.1:54321/"
+  handle$session_dir <- session
+  handle$stdout_cache <- character()
+  handle$stderr_cache <- character()
+  handle$events_cache <- list()
+  handle$cleaned <- FALSE
+  local_mocked_bindings(
+    .desktop_terminate_process = function(handle) TRUE,
+    .desktop_process_exit_status = function(process) 0L,
+    .desktop_cache_process_output = function(handle) invisible(handle),
+    .desktop_remove_session = function(handle) invisible(handle),
+    .package = "rpackit"
+  )
+
+  error <- tryCatch(
+    rpackit:::.desktop_start_abort(
+      "simulated retained directory",
+      "cleanup",
+      handle = handle
+    ),
+    rpackit_desktop_start_error = identity
+  )
+
+  expect_s3_class(error, "rpackit_desktop_start_error")
+  expect_false(error$cleanup_confirmed)
+  expect_identical(error$process_handle, handle)
+})
+
+test_that("shutdown file-cleanup failures retain a retryable handle", {
+  session <- tempfile("rpackit-retained-stop-cleanup-")
+  expect_true(dir.create(session))
+  on.exit(unlink(session, recursive = TRUE, force = TRUE), add = TRUE)
+  process <- new.env(parent = emptyenv())
+  handle <- new.env(parent = emptyenv())
+  handle$process <- process
+  handle$pid <- 123L
+  handle$runtime_process <- NULL
+  handle$session_dir <- session
+  handle$control_path <- file.path(session, "missing", "stop")
+  handle$stdout_cache <- character()
+  handle$stderr_cache <- character()
+  handle$events_cache <- list()
+  class(handle) <- "rpackit_desktop_process"
+  local_mocked_bindings(
+    .desktop_managed_alive = function(handle) TRUE,
+    .desktop_terminate_process = function(handle) TRUE,
+    .desktop_process_exit_status = function(process) 0L,
+    .desktop_cache_process_output = function(handle) invisible(handle),
+    .desktop_remove_session = function(handle) invisible(handle),
+    .desktop_runtime_cleanup_confirmed = function(handle) NA,
+    .package = "rpackit"
+  )
+
+  error <- tryCatch(
+    suppressWarnings(
+      stop_desktop_app(handle, timeout = 0, quiet = TRUE)
+    ),
+    rpackit_desktop_stop_error = identity
+  )
+
+  expect_s3_class(error, "rpackit_desktop_stop_error")
+  expect_false(error$cleanup_confirmed)
+  expect_identical(error$process_handle, handle)
 })
 
 test_that("readiness fails if the runtime process handle cannot be captured", {
@@ -447,7 +867,7 @@ test_that("launcher failures are structured and stop the tracked process", {
     "tracked-process-observed-runtime-and-session"
   )
   if (isTRUE(error$cleanup_confirmed)) {
-    expect_true(error$runtime_cleanup_confirmed)
+    expect_true(is.na(error$runtime_cleanup_confirmed))
     expect_null(retained_handle)
   } else {
     expect_true(is.na(error$runtime_cleanup_confirmed))
@@ -555,8 +975,8 @@ test_that("private port and token generation preserve caller RNG state", {
 
   expect_identical(.Random.seed, caller_seed)
   expect_true(port >= 49152L && port <= 65535L)
-  expect_match(first, "^[A-Za-z0-9._~-]{16,256}$", perl = TRUE)
-  expect_match(second, "^[A-Za-z0-9._~-]{16,256}$", perl = TRUE)
+  expect_match(first, "^rp-[0-9a-f]{64}$", perl = TRUE)
+  expect_match(second, "^rp-[0-9a-f]{64}$", perl = TRUE)
   expect_false(identical(first, second))
 
   rm(".Random.seed", envir = .GlobalEnv)

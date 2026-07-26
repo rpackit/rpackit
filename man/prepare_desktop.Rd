@@ -79,13 +79,17 @@ portable-R registry and reused from a SHA-256-keyed user cache when
 available. The lockfile R version and DESCRIPTION R constraint are checked
 against the selected runtime before copying it or installing packages.
 
-The generated launcher accepts \code{--app}, \code{--port}, and \code{--token}, plus an
-optional private \code{--control} path used for graceful shutdown. It binds Shiny
-only to \verb{127.0.0.1}, exports the token to the application as
-\code{RPACKIT_SESSION_TOKEN}, and emits versioned lifecycle events. Network-level
-token enforcement belongs to the desktop shell/proxy and is deliberately
-recorded as not yet implemented in \code{rpackit.json}; this function does not
-claim to produce a Tauri executable.
+The generated launcher accepts \code{--app}, \code{--port}, and a one-time
+current-account-private
+\code{--token-file}, plus an optional private \code{--control} path used for graceful
+shutdown. It consumes and deletes the credential before validating the app
+or port, binds Shiny only to \verb{127.0.0.1}, and enforces that credential
+through Shiny's
+\code{Shiny-Shared-Secret} checks for HTTP, static resources, and WebSockets.
+Dynamic HTTP and WebSocket comparisons are constant-time. The manifest
+records this authenticated transport explicitly.
+This function still prepares resources; it does not claim to produce a
+Tauri executable or a browser-compatible header injector.
 
 Build inputs are never modified. Output is assembled in a sibling staging
 directory and renamed into place only after validation. Existing output is
