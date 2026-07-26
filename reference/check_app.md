@@ -2,7 +2,15 @@
 
 Recognizes single-file `app.R` and split `ui.R`/`server.R` layouts.
 Source inspection identifies package calls and common blockers for
-browser-only static builds. No application code is executed.
+browser-only static builds. Direct calls to
+[`system()`](https://rdrr.io/r/base/system.html),
+[`system2()`](https://rdrr.io/r/base/system2.html), and `shell()` are
+detected from parsed R syntax rather than raw text, so comments, string
+contents, object methods, and same-named functions in non-base
+namespaces do not create false blockers. Calls inside quoted language
+expressions are conservatively reported because their later evaluation
+cannot be determined statically. The call, file, and source line are
+returned in `findings$system_calls`. No application code is executed.
 
 ## Usage
 
@@ -22,7 +30,8 @@ check_app(app_dir, quiet = FALSE)
 
 ## Value
 
-An `rpackit_app_check` object.
+An `rpackit_app_check` object with the detected layout, dependency plan,
+target matrix, recommendations, and structured findings.
 
 ## Examples
 
@@ -36,7 +45,7 @@ writeLines(
 check_app(app)
 #> 
 #> ── rpackit app check ───────────────────────────────────────────────────────────
-#> Path: /tmp/RtmpNTKtHI/shiny-app-197374e8be9c
+#> Path: /tmp/Rtmpare38x/shiny-app-195c63870eb0
 #> Detected app type: shiny-single-file
 #> 
 #> ── Packages ──

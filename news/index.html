@@ -16,6 +16,7 @@
 
     <div id="navbar" class="collapse navbar-collapse ms-3">
       <ul class="navbar-nav me-auto"><li class="nav-item"><a class="nav-link" href="../reference/index.html">Reference</a></li>
+<li class="nav-item"><a class="nav-link" href="../articles/index.html">Articles</a></li>
 <li class="active nav-item"><a class="nav-link" href="../news/index.html">Changelog</a></li>
       </ul><ul class="navbar-nav"><li class="nav-item"><form class="form-inline" role="search">
  <input class="form-control" type="search" name="search-input" id="search-input" autocomplete="off" aria-label="Search site" placeholder="Search for" data-search-index="../search.json"></form></li>
@@ -34,7 +35,9 @@
 
     <div class="section level2">
 <h2 class="pkg-version" data-toc-text="development version" id="rpackit-development-version">rpackit (development version)<a class="anchor" aria-label="anchor" href="#rpackit-development-version"></a></h2>
-<ul><li>Desktop launches now enforce a fresh 256-bit session credential across dynamic HTTP, static resources, and WebSocket sessions using Shiny’s shared secret request header.</li>
+<ul><li>
+<code><a href="../reference/check_app.html">check_app()</a></code> now detects direct <code><a href="https://rdrr.io/r/base/system.html" class="external-link">system()</a></code>, <code><a href="https://rdrr.io/r/base/system2.html" class="external-link">system2()</a></code>, and <code>shell()</code> calls from parsed R syntax and reports their file and source line. Comments, strings, object methods, and same-named functions in non-base namespaces no longer create false target blockers. A new getting-started vignette connects inspection, dependency planning, portable-resource preparation, validation, and managed launch/cleanup.</li>
+<li>Desktop launches now enforce a fresh 256-bit session credential across dynamic HTTP, static resources, and WebSocket sessions using Shiny’s shared secret request header.</li>
 <li>Session credentials move through a current-account-private, one-time file that the launcher deletes before any app or port validation. Windows DACLs are restricted and verified for the current account plus SYSTEM; POSIX permissions are verified as directory mode 0700 and file mode 0600. The credential is no longer placed by rpackit in child arguments, environment variables, URLs, manifests, generated event fields, status objects, or print output. Launcher errors and returned logs/events are redacted; arbitrary app output remains inside the private raw log and is outside that guarantee.</li>
 <li>Added a post-bind <code>listening</code> lifecycle event and authenticated readiness probe, removing the previous pre-bind token-disclosure race.</li>
 <li>Added <code><a href="../reference/desktop_app_launch_config.html">desktop_app_launch_config()</a></code> as the explicit, redaction-safe handoff contract for trusted development and third-party native consumers. Cleanup prevents future handoffs and clears the managed handle, but cannot revoke caller-retained copies. A generated Tauri app does not call or serialize this R-level handoff; its baseline is transport contract version 2’s authenticated loopback reverse proxy, not a direct request interceptor or bare proxy.</li>

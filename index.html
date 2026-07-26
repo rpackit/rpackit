@@ -32,6 +32,7 @@
     <div id="navbar" class="collapse navbar-collapse ms-3">
       <ul class="navbar-nav me-auto">
 <li class="nav-item"><a class="nav-link" href="reference/index.html">Reference</a></li>
+<li class="nav-item"><a class="nav-link" href="articles/index.html">Articles</a></li>
 <li class="nav-item"><a class="nav-link" href="news/index.html">Changelog</a></li>
       </ul>
 <ul class="navbar-nav">
@@ -80,13 +81,17 @@
 <span><span class="fu">pak</span><span class="fu">::</span><span class="fu"><a href="https://pak.r-lib.org/reference/pak.html" class="external-link">pak</a></span><span class="op">(</span><span class="st">"rpackit/rpackit"</span><span class="op">)</span></span></code></pre></div>
 </div>
 <div class="section level2">
-<h2 id="example">Example<a class="anchor" aria-label="anchor" href="#example"></a>
+<h2 id="inspect-an-app-first">Inspect an app first<a class="anchor" aria-label="anchor" href="#inspect-an-app-first"></a>
 </h2>
 <div class="sourceCode" id="cb2"><pre class="downlit sourceCode r">
 <code class="sourceCode R"><span><span class="kw"><a href="https://rdrr.io/r/base/library.html" class="external-link">library</a></span><span class="op">(</span><span class="va"><a href="https://rpackit.github.io/rpackit/">rpackit</a></span><span class="op">)</span></span>
 <span></span>
 <span><span class="fu"><a href="reference/doctor.html">doctor</a></span><span class="op">(</span><span class="op">)</span></span>
-<span><span class="fu"><a href="reference/check_app.html">check_app</a></span><span class="op">(</span><span class="st">"path/to/shiny-app"</span><span class="op">)</span></span></code></pre></div>
+<span><span class="va">inspection</span> <span class="op">&lt;-</span> <span class="fu"><a href="reference/check_app.html">check_app</a></span><span class="op">(</span><span class="st">"path/to/shiny-app"</span><span class="op">)</span></span>
+<span><span class="va">inspection</span><span class="op">$</span><span class="va">targets</span></span>
+<span><span class="va">inspection</span><span class="op">$</span><span class="va">findings</span><span class="op">$</span><span class="va">system_calls</span></span></code></pre></div>
+<p><code><a href="reference/check_app.html">check_app()</a></code> does not run the application. It reports the detected layout, the packages used by source code, and a target matrix explaining whether the app is a good candidate for portable desktop, static web, or a dynamic server. Direct <code><a href="https://rdrr.io/r/base/system.html" class="external-link">system()</a></code>, <code><a href="https://rdrr.io/r/base/system2.html" class="external-link">system2()</a></code>, and <code>shell()</code> calls include file-and-line evidence because their external programs must be handled explicitly. Detection uses parsed R syntax, so comments, quoted string contents, object methods such as <code>tool$system()</code>, and same-named functions from non-base namespaces do not incorrectly block a target.</p>
+<p>Run <code><a href="articles/getting-started.html">vignette("getting-started", package = "rpackit")</a></code> for an end-to-end inspection, dependency-planning, and desktop-resource workflow.</p>
 </div>
 <div class="section level2">
 <h2 id="dependency-planning">Dependency planning<a class="anchor" aria-label="anchor" href="#dependency-planning"></a>

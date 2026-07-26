@@ -2,6 +2,14 @@
 
 ## rpackit (development version)
 
+- [`check_app()`](https://rpackit.github.io/rpackit/reference/check_app.md)
+  now detects direct [`system()`](https://rdrr.io/r/base/system.html),
+  [`system2()`](https://rdrr.io/r/base/system2.html), and `shell()`
+  calls from parsed R syntax and reports their file and source line.
+  Comments, strings, object methods, and same-named functions in
+  non-base namespaces no longer create false target blockers. A new
+  getting-started vignette connects inspection, dependency planning,
+  portable-resource preparation, validation, and managed launch/cleanup.
 - Desktop launches now enforce a fresh 256-bit session credential across
   dynamic HTTP, static resources, and WebSocket sessions using Shiny’s
   shared secret request header.
