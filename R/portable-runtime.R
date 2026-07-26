@@ -101,8 +101,10 @@
 }
 
 .portable_has_url_scheme <- function(value) {
+  windows_drive <- .Platform$OS.type == "windows" &&
+    grepl("^[A-Za-z]:[/\\\\]", value)
   grepl("^[A-Za-z][A-Za-z0-9+.-]*:", value) &&
-    !grepl("^[A-Za-z]:[/\\\\]", value)
+    !windows_drive
 }
 
 .portable_is_unc_path <- function(value) {
@@ -165,16 +167,75 @@
   value
 }
 
+.portable_lexical_path <- function(path) {
+  path <- path.expand(path)
+  windows <- .Platform$OS.type == "windows"
+  if (windows) {
+    path <- gsub("\\\\", "/", path)
+  }
+  drive_rooted <- windows && grepl("^[A-Za-z]:/", path)
+  current_directory <- function() {
+    base <- getwd()
+    if (windows) {
+      base <- gsub("\\\\", "/", base)
+      if (.portable_is_unc_path(base)) {
+        cli::cli_abort(
+          "Local runtime sources may not be resolved from a UNC working directory.",
+          class = "rpackit_runtime_registry_error"
+        )
+      }
+    }
+    base
+  }
+  if (windows && startsWith(path, "/") && !drive_rooted) {
+    base <- current_directory()
+    if (!grepl("^[A-Za-z]:/", base)) {
+      cli::cli_abort(
+        "Could not determine the current drive for a rooted runtime source.",
+        class = "rpackit_runtime_registry_error"
+      )
+    }
+    path <- paste0(substr(base, 1L, 2L), path)
+    drive_rooted <- TRUE
+  }
+  if (!startsWith(path, "/") && !drive_rooted) {
+    base <- current_directory()
+    path <- paste0(sub("/+$", "", base), "/", path)
+    drive_rooted <- windows && grepl("^[A-Za-z]:/", path)
+  }
+  if (drive_rooted) {
+    prefix <- paste0(toupper(substr(path, 1L, 1L)), ":/")
+    remainder <- substring(path, 4L)
+  } else {
+    prefix <- "/"
+    remainder <- sub("^/+", "", path)
+  }
+  parts <- strsplit(remainder, "/+", perl = TRUE)[[1L]]
+  normalized <- character()
+  for (part in parts) {
+    if (!nzchar(part) || identical(part, ".")) {
+      next
+    }
+    if (identical(part, "..")) {
+      if (length(normalized)) {
+        normalized <- normalized[-length(normalized)]
+      }
+      next
+    }
+    normalized <- c(normalized, part)
+  }
+  if (!length(normalized)) {
+    return(prefix)
+  }
+  paste0(prefix, paste(normalized, collapse = "/"))
+}
+
 .portable_source_label <- function(source, field = "source") {
   source <- .portable_validate_source_reference(source, field)
   if (.portable_is_https(source)) {
     source
   } else {
-    normalizePath(
-      source,
-      winslash = "/",
-      mustWork = FALSE
-    )
+    .portable_lexical_path(source)
   }
 }
 

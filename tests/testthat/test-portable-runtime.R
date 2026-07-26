@@ -185,6 +185,52 @@ test_that("offline mode reuses cache without contacting a registry", {
   expect_identical(offline$path, online$path)
 })
 
+test_that("local registry labels remain stable after removal", {
+  root <- tempfile("rpackit-registry-label-")
+  dir.create(root)
+  registry <- file.path(root, "versions.json")
+  file.create(registry)
+  before <- rpackit:::.portable_source_label(registry, "registry")
+
+  unlink(root, recursive = TRUE, force = TRUE)
+  after <- rpackit:::.portable_source_label(registry, "registry")
+
+  expect_identical(after, before)
+})
+
+test_that("local source labels use platform-correct root semantics", {
+  if (.Platform$OS.type == "windows") {
+    current_drive <- toupper(substr(
+      gsub("\\\\", "/", getwd()),
+      1L,
+      2L
+    ))
+    expect_identical(
+      rpackit:::.portable_source_label(
+        "\\registry\\versions.json",
+        "registry"
+      ),
+      paste0(current_drive, "/registry/versions.json")
+    )
+    expect_identical(
+      rpackit:::.portable_source_label(
+        "/registry/versions.json",
+        "registry"
+      ),
+      paste0(current_drive, "/registry/versions.json")
+    )
+  } else {
+    expect_error(
+      rpackit:::.portable_source_label(
+        "C:/registry/versions.json",
+        "registry"
+      ),
+      "must use HTTPS or a local filesystem path",
+      class = "rpackit_runtime_registry_error"
+    )
+  }
+})
+
 test_that("offline cache entries are bound to their registry source", {
   fixture <- make_portable_registry()
   cache <- tempfile("rpackit-runtime-registry-bound-cache-")
