@@ -14,9 +14,18 @@
 - Added a post-bind `listening` lifecycle event and authenticated readiness
   probe, removing the previous pre-bind token-disclosure race.
 - Added `desktop_app_launch_config()` as the explicit, redaction-safe handoff
-  contract for a native exact-origin header injector or loopback proxy.
-  Cleanup prevents future handoffs and clears the managed handle, but cannot
-  revoke caller-retained copies.
+  contract for trusted development and third-party native consumers. Cleanup
+  prevents future handoffs and clears the managed handle, but cannot revoke
+  caller-retained copies. A generated Tauri app does not call or serialize this
+  R-level handoff; its baseline is transport contract version 2's authenticated
+  loopback reverse proxy, not a direct request interceptor or bare proxy.
+- Documented the pre-release `rpackit-tauri` Windows acceptance spike: a
+  one-time native bootstrap secret creates a host-only HttpOnly proxy-session
+  cookie through an HTTP response, and the proxy injects the separate Shiny
+  secret only after authenticating later HTTP and WebSocket requests. This is
+  development evidence, not a generated app or release-ready transport; the
+  full fixed-runtime, crash-persistence, browser-escape, resource-abuse,
+  malformed-upstream, and listener-overlap matrix remains open.
 - New bundles use launcher protocol 2 and report
   `network_token_enforced = TRUE`. Legacy protocol-1 bundles remain
   inspectable only when manifest and launcher content agree, and are refused
