@@ -18,5 +18,7 @@ desktop, and server build targets. The function is read-only and does not
 install missing software.
 }
 \examples{
+\dontshow{if (interactive()) withAutoprint(\{ # examplesIf}
 doctor()
+\dontshow{\}) # examplesIf}
 }

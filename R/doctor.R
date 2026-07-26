@@ -150,7 +150,7 @@
 #' @param quiet Suppress the human-readable summary.
 #' @return An `rpackit_doctor` object.
 #' @export
-#' @examples
+#' @examplesIf interactive()
 #' doctor()
 doctor <- function(quiet = FALSE) {
   platform <- .rpackit_platform()

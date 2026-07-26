@@ -61,6 +61,106 @@ test_that("static blockers and runtime risks are reported", {
   expect_true("Rsamtools" %in% result$findings$native_risk_packages)
 })
 
+test_that("system-call findings come from syntax rather than raw text", {
+  path <- make_app(c(
+    "# system('comment only')",
+    "message(\"system2('quoted example')\")",
+    "tool <- list(system = function(...) NULL)",
+    "tool$system('object method')",
+    "notbase::shell('foreign namespace')",
+    "shiny::shinyApp(",
+    "  shiny::fluidPage('hello'),",
+    "  function(input, output) {}",
+    ")"
+  ))
+
+  result <- check_app(path, quiet = TRUE)
+
+  expect_false(result$findings$has_system_calls)
+  expect_identical(
+    result$findings$system_calls,
+    data.frame(
+      call = character(),
+      file = character(),
+      line = integer(),
+      stringsAsFactors = FALSE
+    )
+  )
+  expect_identical(
+    result$targets$status[result$targets$target == "static web"],
+    "maybe"
+  )
+  expect_identical(
+    result$targets$status[result$targets$target == "portable desktop"],
+    "yes"
+  )
+})
+
+test_that("system-call findings identify direct base calls and locations", {
+  path <- make_app(c(
+    "system2('tool', '--version')",
+    "base::system('tool')",
+    "base:::shell('tool')",
+    "notbase::system('foreign namespace')",
+    "tool <- list(system = function(...) NULL)",
+    "tool$system('object method')"
+  ))
+
+  result <- check_app(path, quiet = TRUE)
+  calls <- result$findings$system_calls
+
+  expect_true(result$findings$has_system_calls)
+  expect_identical(calls$call, c("system2", "system", "shell"))
+  expect_identical(calls$file, rep("app.R", 3L))
+  expect_identical(calls$line, 1:3)
+  expect_identical(
+    result$targets$status[result$targets$target == "static web"],
+    "no"
+  )
+  expect_match(
+    result$targets$reason[
+      result$targets$target == "portable desktop"
+    ],
+    "app[.]R:1, app[.]R:2, app[.]R:3"
+  )
+})
+
+test_that("system-call parsing is independent of the parse-data option", {
+  path <- make_app("system2('tool', '--version')")
+  previous_options <- options(keep.parse.data = FALSE)
+  on.exit(options(previous_options), add = TRUE)
+
+  result <- check_app(path, quiet = TRUE)
+
+  expect_false(getOption("keep.parse.data"))
+  expect_true(result$findings$has_system_calls)
+  expect_identical(result$findings$system_calls$call, "system2")
+  expect_identical(result$findings$system_calls$line, 1L)
+})
+
+test_that("backticked and parenthesized direct base calls are detected", {
+  path <- make_app(c(
+    "`system`('tool')",
+    "base::`system2`('tool')",
+    "(shell)('tool')",
+    "((system2))('tool')",
+    "(base::system)('tool')",
+    "notbase::`system`('foreign namespace')",
+    "(notbase::system)('foreign namespace')",
+    "(tool$system)('object method')"
+  ))
+
+  result <- check_app(path, quiet = TRUE)
+  calls <- result$findings$system_calls
+
+  expect_identical(
+    calls$call,
+    c("system", "system2", "shell", "system2", "system")
+  )
+  expect_identical(calls$file, rep("app.R", 5L))
+  expect_identical(calls$line, 1:5)
+})
+
 test_that("unknown layouts are rejected for build targets", {
   path <- tempfile("rpackit-not-app-")
   dir.create(path)

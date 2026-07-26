@@ -12,12 +12,19 @@ check_app(app_dir, quiet = FALSE)
 \item{quiet}{Suppress the human-readable report.}
 }
 \value{
-An \code{rpackit_app_check} object.
+An \code{rpackit_app_check} object with the detected layout, dependency
+plan, target matrix, recommendations, and structured findings.
 }
 \description{
 Recognizes single-file \code{app.R} and split \code{ui.R}/\code{server.R} layouts. Source
 inspection identifies package calls and common blockers for browser-only
-static builds. No application code is executed.
+static builds. Direct calls to \code{system()}, \code{system2()}, and \code{shell()} are
+detected from parsed R syntax rather than raw text, so comments, string
+contents, object methods, and same-named functions in non-base namespaces
+do not create false blockers. Calls inside quoted language expressions are
+conservatively reported because their later evaluation cannot be determined
+statically. The call, file, and source line are returned in
+\code{findings$system_calls}. No application code is executed.
 }
 \examples{
 app <- tempfile("shiny-app-")

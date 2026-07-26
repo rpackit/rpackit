@@ -29,14 +29,28 @@ portable desktop, browser-only static web, or a dynamic server bundle.
 pak::pak("rpackit/rpackit")
 ```
 
-## Example
+## Inspect an app first
 
 ```r
 library(rpackit)
 
 doctor()
-check_app("path/to/shiny-app")
+inspection <- check_app("path/to/shiny-app")
+inspection$targets
+inspection$findings$system_calls
 ```
+
+`check_app()` does not run the application. It reports the detected layout,
+the packages used by source code, and a target matrix explaining whether the
+app is a good candidate for portable desktop, static web, or a dynamic server.
+Direct `system()`, `system2()`, and `shell()` calls include file-and-line
+evidence because their external programs must be handled explicitly. Detection
+uses parsed R syntax, so comments, quoted string contents, object methods such
+as `tool$system()`, and same-named functions from non-base namespaces do not
+incorrectly block a target.
+
+Run `vignette("getting-started", package = "rpackit")` for an end-to-end
+inspection, dependency-planning, and desktop-resource workflow.
 
 ## Dependency planning
 

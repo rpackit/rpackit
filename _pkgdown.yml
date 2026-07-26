@@ -22,3 +22,8 @@ reference:
   - desktop_app_launch_config
   - desktop_app_status
   - stop_desktop_app
+
+articles:
+- title: Get started
+  contents:
+  - getting-started

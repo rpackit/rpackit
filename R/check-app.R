@@ -9,18 +9,6 @@
   files[!grepl("/(renv/library|\\.git|packrat/lib|build|dist)/", normalized)]
 }
 
-.read_app_source <- function(files) {
-  if (!length(files)) {
-    return(character())
-  }
-  unlist(lapply(files, function(file) {
-    tryCatch(
-      readLines(file, warn = FALSE, encoding = "UTF-8"),
-      error = function(error) character()
-    )
-  }), use.names = FALSE)
-}
-
 .target_row <- function(target, status, reasons) {
   data.frame(
     target = target,
@@ -30,15 +18,244 @@
   )
 }
 
+.empty_app_system_calls <- function() {
+  data.frame(
+    call = character(),
+    file = character(),
+    line = integer(),
+    stringsAsFactors = FALSE
+  )
+}
+
+.app_parse_children <- function(parse_data, parent, child_rows = NULL) {
+  indices <- if (is.null(child_rows)) {
+    which(parse_data$parent == parent)
+  } else {
+    child_rows[[parent + 1L]]
+  }
+  if (is.null(indices) || !length(indices)) {
+    return(parse_data[FALSE, , drop = FALSE])
+  }
+  children <- parse_data[indices, , drop = FALSE]
+  if (nrow(children) > 1L) {
+    children <- children[
+      order(
+        children$line1,
+        children$col1,
+        children$line2,
+        children$col2,
+        children$id
+      ),
+      ,
+      drop = FALSE
+    ]
+  }
+  children
+}
+
+.app_call_token_name <- function(text) {
+  result <- as.character(text)
+  backticked <- nchar(result) >= 2L &
+    startsWith(result, "`") &
+    endsWith(result, "`")
+  result[backticked] <- vapply(result[backticked], function(value) {
+    symbol <- tryCatch(str2lang(value), error = function(error) NULL)
+    if (is.symbol(symbol)) as.character(symbol) else value
+  }, character(1), USE.NAMES = FALSE)
+  unname(result)
+}
+
+.app_system_call_head <- function(parse_data, expression_id, child_rows) {
+  children <- .app_parse_children(parse_data, expression_id, child_rows)
+  if (!nrow(children)) {
+    return(NULL)
+  }
+  if (nrow(children) == 1L &&
+      children$token[[1L]] %in% c("SYMBOL_FUNCTION_CALL", "SYMBOL")) {
+    call <- .app_call_token_name(children$text[[1L]])
+    if (call %in% c("system", "system2", "shell")) {
+      return(list(call = call, token = children[1L, , drop = FALSE]))
+    }
+    return(NULL)
+  }
+  if (nrow(children) == 3L &&
+      identical(children$token, c("'('", "expr", "')'"))) {
+    return(.app_system_call_head(
+      parse_data,
+      children$id[[2L]],
+      child_rows
+    ))
+  }
+  if (nrow(children) == 3L &&
+      children$token[[1L]] == "SYMBOL_PACKAGE" &&
+      children$token[[2L]] %in% c("NS_GET", "NS_GET_INT") &&
+      children$token[[3L]] %in% c("SYMBOL_FUNCTION_CALL", "SYMBOL")) {
+    namespace <- .app_call_token_name(children$text[[1L]])
+    call <- .app_call_token_name(children$text[[3L]])
+    if (identical(namespace, "base") &&
+        call %in% c("system", "system2", "shell")) {
+      return(list(call = call, token = children[3L, , drop = FALSE]))
+    }
+  }
+  NULL
+}
+
+.app_system_calls_in_file <- function(path, app_path) {
+  relative_path <- .relative_app_path(path, app_path)
+  lines <- .read_dependency_lines(path, relative_path, "R source")
+  previous_options <- options(keep.parse.data = TRUE)
+  on.exit(options(previous_options), add = TRUE)
+  source_file <- srcfilecopy(relative_path, lines, isFile = TRUE)
+  expressions <- tryCatch(
+    parse(text = lines, srcfile = source_file, keep.source = TRUE),
+    error = function(error) {
+      cli::cli_abort(
+        "Cannot parse R source {.path {relative_path}}: {conditionMessage(error)}",
+        class = c(
+          "rpackit_app_source_parse_error",
+          "rpackit_app_parse_error"
+        )
+      )
+    }
+  )
+  parse_data <- utils::getParseData(source_file)
+  if (is.null(parse_data)) {
+    if (length(expressions)) {
+      cli::cli_abort(
+        "Cannot inspect parsed R source {.path {relative_path}}.",
+        class = c(
+          "rpackit_app_source_parse_data_error",
+          "rpackit_app_parse_error"
+        )
+      )
+    }
+    return(.empty_app_system_calls())
+  }
+  symbol_rows <- which(
+    parse_data$token %in% c("SYMBOL_FUNCTION_CALL", "SYMBOL")
+  )
+  symbol_names <- .app_call_token_name(parse_data$text[symbol_rows])
+  candidate_rows <- symbol_rows[
+    symbol_names %in% c("system", "system2", "shell")
+  ]
+  if (!length(candidate_rows)) {
+    return(.empty_app_system_calls())
+  }
+  child_indices <- which(parse_data$parent >= 0L)
+  child_groups <- split(
+    child_indices,
+    parse_data$parent[child_indices]
+  )
+  child_rows <- vector("list", max(parse_data$id) + 1L)
+  child_rows[as.integer(names(child_groups)) + 1L] <- unname(child_groups)
+  row_by_id <- integer(max(parse_data$id) + 1L)
+  row_by_id[parse_data$id + 1L] <- seq_len(nrow(parse_data))
+  calls <- lapply(candidate_rows, function(candidate_row) {
+    head_id <- parse_data$parent[[candidate_row]]
+    repeat {
+      head_row <- row_by_id[[head_id + 1L]]
+      parent_id <- parse_data$parent[[head_row]]
+      if (parent_id <= 0L) {
+        break
+      }
+      parent_children <- .app_parse_children(
+        parse_data,
+        parent_id,
+        child_rows
+      )
+      is_group <- nrow(parent_children) == 3L &&
+        identical(parent_children$token, c("'('", "expr", "')'")) &&
+        parent_children$id[[2L]] == head_id
+      if (!is_group) {
+        break
+      }
+      head_id <- parent_id
+    }
+    head_row <- row_by_id[[head_id + 1L]]
+    call_id <- parse_data$parent[[head_row]]
+    if (call_id <= 0L) {
+      return(NULL)
+    }
+    call_children <- .app_parse_children(parse_data, call_id, child_rows)
+    if (nrow(call_children) < 2L ||
+        call_children$token[[1L]] != "expr" ||
+        call_children$id[[1L]] != head_id ||
+        call_children$token[[2L]] != "'('") {
+      return(NULL)
+    }
+    resolved <- .app_system_call_head(parse_data, head_id, child_rows)
+    if (is.null(resolved) ||
+        resolved$token$id[[1L]] != parse_data$id[[candidate_row]]) {
+      return(NULL)
+    }
+    resolved
+  })
+  calls <- calls[!vapply(calls, is.null, logical(1))]
+  if (!length(calls)) {
+    return(.empty_app_system_calls())
+  }
+  call_names <- vapply(calls, `[[`, character(1), "call")
+  call_tokens <- do.call(rbind, lapply(calls, `[[`, "token"))
+  order_index <- order(
+    call_tokens$line1,
+    call_tokens$col1,
+    call_tokens$line2,
+    call_tokens$col2,
+    call_tokens$id
+  )
+  data.frame(
+    call = call_names[order_index],
+    file = rep(relative_path, length(calls)),
+    line = as.integer(call_tokens$line1[order_index]),
+    stringsAsFactors = FALSE
+  )
+}
+
+.app_system_calls <- function(files, app_path) {
+  if (!length(files)) {
+    return(.empty_app_system_calls())
+  }
+  rows <- lapply(files, .app_system_calls_in_file, app_path = app_path)
+  rows <- rows[vapply(rows, nrow, integer(1)) > 0L]
+  if (!length(rows)) {
+    return(.empty_app_system_calls())
+  }
+  result <- do.call(rbind, rows)
+  rownames(result) <- NULL
+  result
+}
+
+.app_call_locations <- function(calls, limit = 3L) {
+  locations <- unique(ifelse(
+    is.na(calls$line),
+    calls$file,
+    paste0(calls$file, ":", calls$line)
+  ))
+  shown <- utils::head(locations, limit)
+  suffix <- if (length(locations) > limit) {
+    paste0(" (+", length(locations) - limit, " more)")
+  } else {
+    ""
+  }
+  paste0(paste(shown, collapse = ", "), suffix)
+}
+
 #' Inspect a Shiny application and recommend packaging targets
 #'
 #' Recognizes single-file `app.R` and split `ui.R`/`server.R` layouts. Source
 #' inspection identifies package calls and common blockers for browser-only
-#' static builds. No application code is executed.
+#' static builds. Direct calls to `system()`, `system2()`, and `shell()` are
+#' detected from parsed R syntax rather than raw text, so comments, string
+#' contents, object methods, and same-named functions in non-base namespaces
+#' do not create false blockers. Calls inside quoted language expressions are
+#' conservatively reported because their later evaluation cannot be determined
+#' statically. The call, file, and source line are returned in
+#' `findings$system_calls`. No application code is executed.
 #'
 #' @param app_dir Path to the application directory.
 #' @param quiet Suppress the human-readable report.
-#' @return An `rpackit_app_check` object.
+#' @return An `rpackit_app_check` object with the detected layout, dependency
+#'   plan, target matrix, recommendations, and structured findings.
 #' @export
 #' @examples
 #' app <- tempfile("shiny-app-")
@@ -76,13 +293,8 @@ check_app <- function(app_dir, quiet = FALSE) {
     dependency_plan$dependencies$direct
   ]
   risk_packages <- sort(unique(c(packages, direct_dependencies)))
-  source <- .read_app_source(files)
-  source_text <- paste(source, collapse = "\n")
-  has_system_calls <- grepl(
-    "\\b(system|system2|shell)\\s*\\(",
-    source_text,
-    perl = TRUE
-  )
+  system_calls <- .app_system_calls(files, path)
+  has_system_calls <- nrow(system_calls) > 0L
   has_reticulate <- "reticulate" %in% risk_packages
   native_risk <- intersect(
     risk_packages,
@@ -109,7 +321,13 @@ check_app <- function(app_dir, quiet = FALSE) {
     static_blockers <- c(static_blockers, "unrecognized app layout")
   }
   if (has_system_calls) {
-    static_blockers <- c(static_blockers, "system command calls")
+    static_blockers <- c(
+      static_blockers,
+      paste0(
+        "system command calls at ",
+        .app_call_locations(system_calls)
+      )
+    )
   }
   if (has_reticulate) {
     static_blockers <- c(static_blockers, "reticulate/Python dependency")
@@ -134,7 +352,14 @@ check_app <- function(app_dir, quiet = FALSE) {
     desktop_risks <- c(desktop_risks, "unrecognized app layout")
   }
   if (has_system_calls) {
-    desktop_risks <- c(desktop_risks, "external commands must be bundled")
+    desktop_risks <- c(
+      desktop_risks,
+      paste0(
+        "external commands at ",
+        .app_call_locations(system_calls),
+        " must be bundled"
+      )
+    )
   }
   if (has_reticulate) {
     desktop_risks <- c(desktop_risks, "Python runtime must be bundled")
@@ -168,6 +393,7 @@ check_app <- function(app_dir, quiet = FALSE) {
     has_renv_lock = file.exists(file.path(path, "renv.lock")),
     has_description = file.exists(file.path(path, "DESCRIPTION")),
     has_system_calls = has_system_calls,
+    system_calls = system_calls,
     has_reticulate = has_reticulate,
     native_risk_packages = native_risk,
     large_data_files = sub(
