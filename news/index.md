@@ -2,6 +2,19 @@
 
 ## rpackit (development version)
 
+- Dependency plans now fail visibly when `renv.lock` omits a required
+  package, when a locked package version violates `DESCRIPTION`, or when
+  `Remotes` lacks exact lockfile provenance. Remote specifications are
+  not retained in the returned plan, and credential-bearing lockfile URL
+  components are redacted. Desktop preparation enforces these errors
+  before copying a runtime and verifies every required package
+  constraint again after restore or installation; manifests record the
+  constraints and whether they were verified. Bundle validation binds
+  those records to the copied app, and runtime verification checks their
+  installed versions again.
+- The pkgdown site now declares its unreleased status and uses explicit
+  project links, so local and CI builds do not depend on CRAN or
+  Bioconductor package discovery.
 - [`check_app()`](https://rpackit.github.io/rpackit/reference/check_app.md)
   now detects direct [`system()`](https://rdrr.io/r/base/system.html),
   [`system2()`](https://rdrr.io/r/base/system2.html), and `shell()`

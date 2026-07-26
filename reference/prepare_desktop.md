@@ -43,7 +43,9 @@ prepare_desktop(
 
 - install_packages:
 
-  Install required packages into the copied runtime.
+  Install required packages into the copied runtime. When `FALSE`,
+  dependency-plan errors remain inspectable and the manifest records
+  that packages and constraints were not verified.
 
 - repos:
 
@@ -98,7 +100,13 @@ runtime is copied into the bundle, so the generated resources do not
 depend on a system R installation at run time. By default, required
 packages are installed into the copied runtime. A `renv.lock` uses
 `renv::restore()`; otherwise the parsed dependency plan is installed
-from `repos`. When `runtime_dir = NULL`, a verified runtime is resolved
+from `repos`. Required packages missing from a lockfile and locked
+versions that violate `DESCRIPTION` fail before runtime copying. A
+`DESCRIPTION` `Remotes` field also requires an exact `renv.lock`; it is
+never silently replaced by a same-named repository package. After either
+installation strategy finishes, every required package version
+constraint is checked inside the copied runtime before the bundle can be
+published. When `runtime_dir = NULL`, a verified runtime is resolved
 from the portable-R registry and reused from a SHA-256-keyed user cache
 when available. The lockfile R version and DESCRIPTION R constraint are
 checked against the selected runtime before copying it or installing

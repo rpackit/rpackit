@@ -20,7 +20,7 @@
 
     <a class="navbar-brand me-2" href="../index.html">rpackit</a>
 
-    <small class="nav-text text-muted me-auto" data-bs-toggle="tooltip" data-bs-placement="bottom" title="">0.1.2</small>
+    <small class="nav-text text-danger me-auto" data-bs-toggle="tooltip" data-bs-placement="bottom" title="Unreleased version">0.1.2</small>
 
 
     <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#navbar" aria-controls="navbar" aria-expanded="false" aria-label="Toggle navigation">
@@ -144,8 +144,8 @@ later.</p>
 <span><span class="va">plan</span><span class="op">$</span><span class="va">dependencies</span></span>
 <span><span class="co">#&gt;   package version constraint roles direct required locked lock_source</span></span>
 <span><span class="co">#&gt; 1   shiny    &lt;NA&gt;       &lt;NA&gt;  &lt;NA&gt;   TRUE     TRUE  FALSE        &lt;NA&gt;</span></span>
-<span><span class="co">#&gt;   repository remote             provenance</span></span>
-<span><span class="co">#&gt; 1       &lt;NA&gt;   &lt;NA&gt; source:library@app.R:1</span></span>
+<span><span class="co">#&gt;   repository remote             provenance constraint_satisfied</span></span>
+<span><span class="co">#&gt; 1       &lt;NA&gt;   &lt;NA&gt; source:library@app.R:1                   NA</span></span>
 <span><span class="va">plan</span><span class="op">$</span><span class="va">diagnostics</span></span>
 <span><span class="co">#&gt; [1] severity code     file     line     message </span></span>
 <span><span class="co">#&gt; &lt;0 rows&gt; (or 0-length row.names)</span></span></code></pre></div>
@@ -159,6 +159,17 @@ and sources. <code>DESCRIPTION</code> supplies direct dependency roles
 and constraints. Parsed source calls catch packages that were used but
 not declared. The complete evidence is available in
 <code>plan$references</code>.</p>
+<p>Resolve every row where
+<code>plan$diagnostics$severity == "error"</code> before asking rpackit
+to install dependencies. The planner reports required packages missing
+from a lockfile and locked versions that violate
+<code>DESCRIPTION</code>. If <code>DESCRIPTION</code> contains
+<code>Remotes</code>, create and review <code>renv.lock</code> first;
+rpackit does not silently install a same-named repository package
+instead. Remote specifications are not copied into the returned plan,
+which avoids echoing URL credentials accidentally stored in project
+metadata. Credential-bearing URL components in lockfile provenance are
+redacted as well.</p>
 </div>
 <div class="section level2">
 <h2 id="check-the-build-machine">Check the build machine<a class="anchor" aria-label="anchor" href="#check-the-build-machine"></a>
@@ -202,7 +213,12 @@ home as <code>runtime_dir</code>.</p>
 assembles a sibling staging directory, validates it, and only then
 publishes the completed resource tree. If preparation fails, fix the
 reported input or dependency problem and choose a new or removed output
-directory before retrying.</p>
+directory before retrying. Locked dependency constraints fail before
+runtime copying, and the installed package versions are checked again
+before the staging directory can be published. Later validation reparses
+the copied app and rejects manifest package or constraint drift. Set
+<code>verify_runtime = TRUE</code> when you also want validation to
+execute bundled R and recheck installed package versions.</p>
 </div>
 <div class="section level2">
 <h2 id="run-and-stop-the-prepared-app">Run and stop the prepared app<a class="anchor" aria-label="anchor" href="#run-and-stop-the-prepared-app"></a>

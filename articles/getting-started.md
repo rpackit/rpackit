@@ -85,8 +85,8 @@ plan <- plan_dependencies(app)
 plan$dependencies
 #>   package version constraint roles direct required locked lock_source
 #> 1   shiny    <NA>       <NA>  <NA>   TRUE     TRUE  FALSE        <NA>
-#>   repository remote             provenance
-#> 1       <NA>   <NA> source:library@app.R:1
+#>   repository remote             provenance constraint_satisfied
+#> 1       <NA>   <NA> source:library@app.R:1                   NA
 plan$diagnostics
 #> [1] severity code     file     line     message 
 #> <0 rows> (or 0-length row.names)
@@ -103,6 +103,16 @@ When present, `renv.lock` supplies exact package versions and sources.
 `DESCRIPTION` supplies direct dependency roles and constraints. Parsed
 source calls catch packages that were used but not declared. The
 complete evidence is available in `plan$references`.
+
+Resolve every row where `plan$diagnostics$severity == "error"` before
+asking rpackit to install dependencies. The planner reports required
+packages missing from a lockfile and locked versions that violate
+`DESCRIPTION`. If `DESCRIPTION` contains `Remotes`, create and review
+`renv.lock` first; rpackit does not silently install a same-named
+repository package instead. Remote specifications are not copied into
+the returned plan, which avoids echoing URL credentials accidentally
+stored in project metadata. Credential-bearing URL components in
+lockfile provenance are redacted as well.
 
 ## Check the build machine
 
@@ -153,7 +163,12 @@ Preparation never overwrites an existing output directory. It assembles
 a sibling staging directory, validates it, and only then publishes the
 completed resource tree. If preparation fails, fix the reported input or
 dependency problem and choose a new or removed output directory before
-retrying.
+retrying. Locked dependency constraints fail before runtime copying, and
+the installed package versions are checked again before the staging
+directory can be published. Later validation reparses the copied app and
+rejects manifest package or constraint drift. Set
+`verify_runtime = TRUE` when you also want validation to execute bundled
+R and recheck installed package versions.
 
 ## Run and stop the prepared app
 

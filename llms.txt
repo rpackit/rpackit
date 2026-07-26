@@ -15,7 +15,8 @@ server bundle.
   recognizes common Shiny project layouts;
 - [`plan_dependencies()`](https://rpackit.github.io/rpackit/reference/plan_dependencies.md)
   combines parsed R calls, `DESCRIPTION`, and `renv.lock` without
-  executing application code;
+  executing application code, and verifies lockfile completeness,
+  sources, and declared package-version constraints;
 - [`resolve_portable_runtime()`](https://rpackit.github.io/rpackit/reference/resolve_portable_runtime.md)
   selects verified registry entries, checks SHA-256, and maintains an
   atomic local runtime cache;
@@ -97,6 +98,18 @@ affected path instead of silently returning an incomplete plan.
 plan_dependencies("path/to/shiny-app", include_suggests = TRUE)
 ```
 
+Start with `plan$diagnostics`. Error diagnostics identify required
+packages missing from `renv.lock`, locked versions that violate
+`DESCRIPTION`, and a `Remotes` field without exact lockfile provenance.
+Remote specifications are counted but not copied into the returned plan,
+so credentials accidentally embedded in DESCRIPTION do not appear in
+normal plan output. Credential-bearing URL components in lockfile
+provenance are redacted as well.
+[`prepare_desktop()`](https://rpackit.github.io/rpackit/reference/prepare_desktop.md)
+refuses an installable bundle until these errors are resolved; use
+`install_packages = FALSE` only when deliberately preparing an
+uninstalled resource contract for inspection.
+
 ## Portable desktop resources
 
 On a platform with a verified registry entry, the first desktop build
@@ -157,7 +170,13 @@ writes the loopback-only `launcher.R`, and records an explicit
 `rpackit.json` manifest, including runtime version and registry artifact
 provenance when automatic resolution was used. A `renv.lock` R version
 and DESCRIPTION `Depends: R` constraint are checked before runtime
-copying or package installation. Existing output is never overwritten.
+copying or package installation. Required package constraints are also
+checked against locked versions before copying and against the installed
+library before atomic publication. `DESCRIPTION Remotes` is never
+silently treated as CRAN: create and review `renv.lock` first. Bundle
+validation reparses the copied app and requires its packages and
+constraints to match the manifest; `verify_runtime = TRUE` checks those
+versions again inside portable R. Existing output is never overwritten.
 
 The lifecycle manager starts the bundled `Rscript`, waits for a
 post-bind `listening` event, verifies a real authenticated HTTP

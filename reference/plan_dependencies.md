@@ -42,13 +42,21 @@ never evaluated.
 
 In `dependencies`, `version`, `lock_source`, `repository`, and `remote`
 come from `renv.lock`; `constraint` and `roles` come from `DESCRIPTION`;
-`direct` marks packages seen in source or DESCRIPTION; and `locked`
-marks packages present in the lockfile. `provenance` is a compact
-summary. The normalized `references` table is the authoritative record
-of each origin, file, source line, role or call type, and version
-requirement. Non-fatal findings such as a dynamic
+`constraint_satisfied` reports whether a locked version satisfies every
+declared constraint; `direct` marks packages seen in source or
+DESCRIPTION; and `locked` marks packages present in the lockfile.
+`provenance` is a compact summary. The normalized `references` table is
+the authoritative record of each origin, file, source line, role or call
+type, and version requirement. Findings such as a dynamic
 [`library()`](https://rdrr.io/r/base/library.html) package name appear
-in `diagnostics`.
+in `diagnostics`. Error diagnostics identify unsafe installation plans,
+including required packages missing from a lockfile, locked versions
+that violate DESCRIPTION, and DESCRIPTION `Remotes` without an exact
+`renv.lock`. `has_description_remotes` and `description_remotes_count`
+expose only the presence and count of remote specifications, not their
+possibly credential-bearing text. Credential-bearing URL components in
+lockfile remote provenance are redacted before they enter the returned
+tables.
 
 Required DESCRIPTION fields (`Depends`, `Imports`, and `LinkingTo`) are
 included by default. Set `include_suggests = TRUE` to also include
@@ -67,12 +75,12 @@ writeLines(
 plan_dependencies(app)
 #> 
 #> ── rpackit dependency plan ─────────────────────────────────────────────────────
-#> Path: /tmp/Rtmpare38x/rpackit-dependencies-195c3c56b5fe
+#> Path: /tmp/RtmpZA7jTo/rpackit-dependencies-190e4bb3323a
 #> 2 packages; 2 direct; 0 locked
 #>   package version constraint roles direct required locked lock_source
 #>  jsonlite    <NA>       <NA>  <NA>   TRUE     TRUE  FALSE        <NA>
 #>     shiny    <NA>       <NA>  <NA>   TRUE     TRUE  FALSE        <NA>
-#>  repository remote             provenance
-#>        <NA>   <NA>      source:::@app.R:2
-#>        <NA>   <NA> source:library@app.R:1
+#>  repository remote             provenance constraint_satisfied
+#>        <NA>   <NA>      source:::@app.R:2                   NA
+#>        <NA>   <NA> source:library@app.R:1                   NA
 ```

@@ -7,7 +7,7 @@
 
     <a class="navbar-brand me-2" href="../index.html">rpackit</a>
 
-    <small class="nav-text text-muted me-auto" data-bs-toggle="tooltip" data-bs-placement="bottom" title="">0.1.2</small>
+    <small class="nav-text text-danger me-auto" data-bs-toggle="tooltip" data-bs-placement="bottom" title="Unreleased version">0.1.2</small>
 
 
     <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#navbar" aria-controls="navbar" aria-expanded="false" aria-label="Toggle navigation">
@@ -35,7 +35,9 @@
 
     <div class="section level2">
 <h2 class="pkg-version" data-toc-text="development version" id="rpackit-development-version">rpackit (development version)<a class="anchor" aria-label="anchor" href="#rpackit-development-version"></a></h2>
-<ul><li>
+<ul><li>Dependency plans now fail visibly when <code>renv.lock</code> omits a required package, when a locked package version violates <code>DESCRIPTION</code>, or when <code>Remotes</code> lacks exact lockfile provenance. Remote specifications are not retained in the returned plan, and credential-bearing lockfile URL components are redacted. Desktop preparation enforces these errors before copying a runtime and verifies every required package constraint again after restore or installation; manifests record the constraints and whether they were verified. Bundle validation binds those records to the copied app, and runtime verification checks their installed versions again.</li>
+<li>The pkgdown site now declares its unreleased status and uses explicit project links, so local and CI builds do not depend on CRAN or Bioconductor package discovery.</li>
+<li>
 <code><a href="../reference/check_app.html">check_app()</a></code> now detects direct <code><a href="https://rdrr.io/r/base/system.html" class="external-link">system()</a></code>, <code><a href="https://rdrr.io/r/base/system2.html" class="external-link">system2()</a></code>, and <code>shell()</code> calls from parsed R syntax and reports their file and source line. Comments, strings, object methods, and same-named functions in non-base namespaces no longer create false target blockers. A new getting-started vignette connects inspection, dependency planning, portable-resource preparation, validation, and managed launch/cleanup.</li>
 <li>Desktop launches now enforce a fresh 256-bit session credential across dynamic HTTP, static resources, and WebSocket sessions using Shiny’s shared secret request header.</li>
 <li>Session credentials move through a current-account-private, one-time file that the launcher deletes before any app or port validation. Windows DACLs are restricted and verified for the current account plus SYSTEM; POSIX permissions are verified as directory mode 0700 and file mode 0600. The credential is no longer placed by rpackit in child arguments, environment variables, URLs, manifests, generated event fields, status objects, or print output. Launcher errors and returned logs/events are redacted; arbitrary app output remains inside the private raw log and is outside that guarantee.</li>

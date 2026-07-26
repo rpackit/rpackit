@@ -9,7 +9,7 @@ future rpackit Tauri shell:"></head><body>
 
     <a class="navbar-brand me-2" href="../index.html">rpackit</a>
 
-    <small class="nav-text text-muted me-auto" data-bs-toggle="tooltip" data-bs-placement="bottom" title="">0.1.2</small>
+    <small class="nav-text text-danger me-auto" data-bs-toggle="tooltip" data-bs-placement="bottom" title="Unreleased version">0.1.2</small>
 
 
     <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#navbar" aria-controls="navbar" aria-expanded="false" aria-label="Toggle navigation">
@@ -82,7 +82,9 @@ resolve a verified runtime for the current platform and architecture.</p></dd>
 
 
 <dt id="arg-install-packages">install_packages<a class="anchor" aria-label="anchor" href="#arg-install-packages"></a></dt>
-<dd><p>Install required packages into the copied runtime.</p></dd>
+<dd><p>Install required packages into the copied runtime.
+When <code>FALSE</code>, dependency-plan errors remain inspectable and the manifest
+records that packages and constraints were not verified.</p></dd>
 
 
 <dt id="arg-repos">repos<a class="anchor" aria-label="anchor" href="#arg-repos"></a></dt>
@@ -137,6 +139,12 @@ runtime is copied into the bundle, so the generated resources do not depend
 on a system R installation at run time. By default, required packages are
 installed into the copied runtime. A <code>renv.lock</code> uses <code>renv::restore()</code>;
 otherwise the parsed dependency plan is installed from <code>repos</code>.
+Required packages missing from a lockfile and locked versions that violate
+<code>DESCRIPTION</code> fail before runtime copying. A <code>DESCRIPTION</code> <code>Remotes</code> field
+also requires an exact <code>renv.lock</code>; it is never silently replaced by a
+same-named repository package. After either installation strategy finishes,
+every required package version constraint is checked inside the copied
+runtime before the bundle can be published.
 When <code>runtime_dir = NULL</code>, a verified runtime is resolved from the
 portable-R registry and reused from a SHA-256-keyed user cache when
 available. The lockfile R version and DESCRIPTION R constraint are checked

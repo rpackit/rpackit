@@ -11,8 +11,8 @@
 <script src="deps/bootstrap-5.3.8/bootstrap.bundle.min.js"></script><link href="deps/font-awesome-6.5.2/css/all.min.css" rel="stylesheet">
 <link href="deps/font-awesome-6.5.2/css/v4-shims.min.css" rel="stylesheet">
 <script src="deps/headroom-0.11.0/headroom.min.js"></script><script src="deps/headroom-0.11.0/jQuery.headroom.min.js"></script><script src="deps/bootstrap-toc-1.0.1/bootstrap-toc.min.js"></script><script src="deps/clipboard.js-2.0.11/clipboard.min.js"></script><script src="deps/search-1.0.0/autocomplete.jquery.min.js"></script><script src="deps/search-1.0.0/fuse.min.js"></script><script src="deps/search-1.0.0/mark.min.js"></script><!-- pkgdown --><script src="pkgdown.js"></script><meta property="og:title" content="Check and Package R Applications">
-<meta name="description" content="Inspects R application projects and the local build environment before packaging. It recognizes common Shiny layouts, plans dependencies from parsed R source, package metadata, and lockfiles, resolves verified portable R runtimes, prepares atomic desktop resource bundles, manages loopback Shiny processes, and recommends portable desktop, static web, and dynamic server targets.">
-<meta property="og:description" content="Inspects R application projects and the local build environment before packaging. It recognizes common Shiny layouts, plans dependencies from parsed R source, package metadata, and lockfiles, resolves verified portable R runtimes, prepares atomic desktop resource bundles, manages loopback Shiny processes, and recommends portable desktop, static web, and dynamic server targets.">
+<meta name="description" content="Inspects R application projects and the local build environment before packaging. It recognizes common Shiny layouts, plans dependencies from parsed R source, package metadata, and lockfiles, validates exact dependency sources and version constraints, resolves verified portable R runtimes, prepares atomic desktop resource bundles, manages loopback Shiny processes, and recommends portable desktop, static web, and dynamic server targets.">
+<meta property="og:description" content="Inspects R application projects and the local build environment before packaging. It recognizes common Shiny layouts, plans dependencies from parsed R source, package metadata, and lockfiles, validates exact dependency sources and version constraints, resolves verified portable R runtimes, prepares atomic desktop resource bundles, manages loopback Shiny processes, and recommends portable desktop, static web, and dynamic server targets.">
 </head>
 <body>
     <a href="#main" class="visually-hidden-focusable">Skip to contents</a>
@@ -22,7 +22,7 @@
 
     <a class="navbar-brand me-2" href="index.html">rpackit</a>
 
-    <small class="nav-text text-muted me-auto" data-bs-toggle="tooltip" data-bs-placement="bottom" title="">0.1.2</small>
+    <small class="nav-text text-danger me-auto" data-bs-toggle="tooltip" data-bs-placement="bottom" title="Unreleased version">0.1.2</small>
 
 
     <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#navbar" aria-controls="navbar" aria-expanded="false" aria-label="Toggle navigation">
@@ -61,7 +61,7 @@
 <li>
 <code><a href="reference/check_app.html">check_app()</a></code> recognizes common Shiny project layouts;</li>
 <li>
-<code><a href="reference/plan_dependencies.html">plan_dependencies()</a></code> combines parsed R calls, <code>DESCRIPTION</code>, and <code>renv.lock</code> without executing application code;</li>
+<code><a href="reference/plan_dependencies.html">plan_dependencies()</a></code> combines parsed R calls, <code>DESCRIPTION</code>, and <code>renv.lock</code> without executing application code, and verifies lockfile completeness, sources, and declared package-version constraints;</li>
 <li>
 <code><a href="reference/resolve_portable_runtime.html">resolve_portable_runtime()</a></code> selects verified registry entries, checks SHA-256, and maintains an atomic local runtime cache;</li>
 <li>
@@ -111,6 +111,7 @@
 <p>Every observation remains available in <code>plan$references</code>, including its file and source line where available. Comments and string contents are ignored. Unreadable or syntactically invalid inputs fail with the affected path instead of silently returning an incomplete plan. <code>Suggests</code> and <code>Enhances</code> are optional:</p>
 <div class="sourceCode" id="cb4"><pre class="downlit sourceCode r">
 <code class="sourceCode R"><span><span class="fu"><a href="reference/plan_dependencies.html">plan_dependencies</a></span><span class="op">(</span><span class="st">"path/to/shiny-app"</span>, include_suggests <span class="op">=</span> <span class="cn">TRUE</span><span class="op">)</span></span></code></pre></div>
+<p>Start with <code>plan$diagnostics</code>. Error diagnostics identify required packages missing from <code>renv.lock</code>, locked versions that violate <code>DESCRIPTION</code>, and a <code>Remotes</code> field without exact lockfile provenance. Remote specifications are counted but not copied into the returned plan, so credentials accidentally embedded in DESCRIPTION do not appear in normal plan output. Credential-bearing URL components in lockfile provenance are redacted as well. <code><a href="reference/prepare_desktop.html">prepare_desktop()</a></code> refuses an installable bundle until these errors are resolved; use <code>install_packages = FALSE</code> only when deliberately preparing an uninstalled resource contract for inspection.</p>
 </div>
 <div class="section level2">
 <h2 id="portable-desktop-resources">Portable desktop resources<a class="anchor" aria-label="anchor" href="#portable-desktop-resources"></a>
@@ -140,7 +141,7 @@
 <span><span class="op">)</span></span></code></pre></div>
 <p>Remote registry and artifact sources must use stable HTTPS URLs without credentials, query strings, or fragments. Local files are also accepted as an rpackit transport extension for air-gapped mirrors and tests; UNC shares are rejected. The resolver accepts only <code>verified</code> entries, checks SHA-256 before extraction, rejects unsafe paths and ZIP entry types other than files or directories, and publishes runtimes atomically to rpackit’s user cache. A later call reuses the registry-bound, content-addressed version/SHA cache entry. Use <code>offline = TRUE</code> to require a cache hit from the same registry source without reading any registry or artifact.</p>
 <p>SHA-256 proves that the downloaded archive matches the registry record; it is not code signing. Cache hits are structurally revalidated for links and path escapes, but the cache still contains executable code and must not be writable by untrusted users. Automatic tar extraction currently fails closed because tar link targets cannot yet be proven safe before extraction.</p>
-<p>This copies the app and runtime, restores or installs required packages, writes the loopback-only <code>launcher.R</code>, and records an explicit <code>rpackit.json</code> manifest, including runtime version and registry artifact provenance when automatic resolution was used. A <code>renv.lock</code> R version and DESCRIPTION <code>Depends: R</code> constraint are checked before runtime copying or package installation. Existing output is never overwritten.</p>
+<p>This copies the app and runtime, restores or installs required packages, writes the loopback-only <code>launcher.R</code>, and records an explicit <code>rpackit.json</code> manifest, including runtime version and registry artifact provenance when automatic resolution was used. A <code>renv.lock</code> R version and DESCRIPTION <code>Depends: R</code> constraint are checked before runtime copying or package installation. Required package constraints are also checked against locked versions before copying and against the installed library before atomic publication. <code>DESCRIPTION Remotes</code> is never silently treated as CRAN: create and review <code>renv.lock</code> first. Bundle validation reparses the copied app and requires its packages and constraints to match the manifest; <code>verify_runtime = TRUE</code> checks those versions again inside portable R. Existing output is never overwritten.</p>
 <p>The lifecycle manager starts the bundled <code>Rscript</code>, waits for a post-bind <code>listening</code> event, verifies a real authenticated HTTP response, and requests graceful shutdown through a private control file. If graceful shutdown times out, it asks <code>processx</code> to terminate the tracked process and its known tree, with a tracked-process kill as fallback. Status reports both the processx wrapper <code>pid</code> and the launcher-reported <code>runtime_pid</code>, which can differ for portable R on Windows. Readiness captures a create-time-aware handle for the observed runtime PID, and cleanup is confirmed only after both captured processes stop. Those observations do not independently prove other process-tree membership or descendant termination.</p>
 <p>The launcher uses a fresh 256-bit operating-system credential for each session. rpackit writes it to a current-account-private, one-time file; only that file’s path appears in the child command line, and the launcher consumes and deletes the file before app or port validation. On Windows, the directory and file DACLs are restricted and verified for the current account plus SYSTEM. On POSIX, directory mode 0700 and file mode 0600 are verified. The credential is not exported to app environment variables and is never placed by rpackit in the URL, manifest, generated lifecycle-event fields, returned status, or print output. Launcher error messages and returned logs/events are redacted. Raw log files are private lifecycle artifacts, not a secrecy boundary: trusted app/package code runs in the credential-bearing process and can deliberately print the option.</p>
 <p>Shiny enforces the credential through the <code>Shiny-Shared-Secret</code> request header for dynamic HTTP, static resources, and WebSocket session acceptance. Missing and wrong HTTP headers receive 403. A WebSocket protocol upgrade may return 101, after which Shiny immediately closes an unauthenticated socket before the application server starts; the attack-surface tests assert positive close evidence. New manifests and status objects report <code>network_token_enforced = TRUE</code>. Legacy unauthenticated bundles remain inspectable with <code><a href="reference/validate_desktop_bundle.html">validate_desktop_bundle()</a></code> but <code><a href="reference/start_desktop_app.html">start_desktop_app()</a></code> refuses to launch them.</p>
@@ -155,11 +156,13 @@
 <p>MIT © Yaoxiang Li</p>
 </div>
 </div>
-  </main><aside class="col-md-3"><div class="links">
-<h2 data-toc-skip>Links</h2>
+  </main><aside class="col-md-3"><div class="project">
+<h2 data-toc-skip>Project</h2>
 <ul class="list-unstyled">
-<li><a href="https://github.com/rpackit/rpackit/" class="external-link">Browse source code</a></li>
-<li><a href="https://github.com/rpackit/rpackit/issues" class="external-link">Report a bug</a></li>
+<li>
+<p><a href="https://github.com/rpackit/rpackit" class="external-link">Source code</a></p>
+<p><a href="https://github.com/rpackit/rpackit/issues" class="external-link">Report a bug</a></p>
+</li>
 </ul>
 </div>
 
@@ -172,14 +175,6 @@
 </ul>
 </div>
 
-
-<div class="citation">
-<h2 data-toc-skip>Citation</h2>
-<ul class="list-unstyled">
-<li><a href="authors.html#citation">Citing rpackit</a></li>
-</ul>
-</div>
-
 <div class="developers">
 <h2 data-toc-skip>Developers</h2>
 <ul class="list-unstyled">
@@ -187,7 +182,12 @@
 </ul>
 </div>
 
-
+<div class="table-of-contents">
+<h2 data-toc-skip>Table of contents</h2>
+<ul class="list-unstyled">
+<li><nav id="toc"></nav></li>
+</ul>
+</div>
 
   </aside>
 </div>

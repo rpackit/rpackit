@@ -7,7 +7,7 @@
 
     <a class="navbar-brand me-2" href="../index.html">rpackit</a>
 
-    <small class="nav-text text-muted me-auto" data-bs-toggle="tooltip" data-bs-placement="bottom" title="">0.1.2</small>
+    <small class="nav-text text-danger me-auto" data-bs-toggle="tooltip" data-bs-placement="bottom" title="Unreleased version">0.1.2</small>
 
 
     <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#navbar" aria-controls="navbar" aria-expanded="false" aria-label="Toggle navigation">
@@ -74,12 +74,20 @@ contains one resolved row per package. R source is parsed with <code><a href="ht
 comments and string contents are never treated as package calls, and
 application code is never evaluated.</p>
 <p>In <code>dependencies</code>, <code>version</code>, <code>lock_source</code>, <code>repository</code>, and <code>remote</code> come
-from <code>renv.lock</code>; <code>constraint</code> and <code>roles</code> come from <code>DESCRIPTION</code>; <code>direct</code>
-marks packages seen in source or DESCRIPTION; and <code>locked</code> marks packages
-present in the lockfile. <code>provenance</code> is a compact summary. The normalized
-<code>references</code> table is the authoritative record of each origin, file, source
-line, role or call type, and version requirement. Non-fatal findings such as
-a dynamic <code><a href="https://rdrr.io/r/base/library.html" class="external-link">library()</a></code> package name appear in <code>diagnostics</code>.</p>
+from <code>renv.lock</code>; <code>constraint</code> and <code>roles</code> come from <code>DESCRIPTION</code>;
+<code>constraint_satisfied</code> reports whether a locked version satisfies every
+declared constraint; <code>direct</code> marks packages seen in source or DESCRIPTION;
+and <code>locked</code> marks packages present in the lockfile. <code>provenance</code> is a compact
+summary. The normalized <code>references</code> table is the authoritative record of
+each origin, file, source line, role or call type, and version requirement.
+Findings such as a dynamic <code><a href="https://rdrr.io/r/base/library.html" class="external-link">library()</a></code> package name appear in <code>diagnostics</code>.
+Error diagnostics identify unsafe installation plans, including required
+packages missing from a lockfile, locked versions that violate DESCRIPTION,
+and DESCRIPTION <code>Remotes</code> without an exact <code>renv.lock</code>.
+<code>has_description_remotes</code> and <code>description_remotes_count</code> expose only the
+presence and count of remote specifications, not their possibly
+credential-bearing text. Credential-bearing URL components in lockfile
+remote provenance are redacted before they enter the returned tables.</p>
 <p>Required DESCRIPTION fields (<code>Depends</code>, <code>Imports</code>, and <code>LinkingTo</code>) are
 included by default. Set <code>include_suggests = TRUE</code> to also include <code>Suggests</code>
 and <code>Enhances</code>. A lockfile package that is not directly referenced is retained
@@ -97,14 +105,14 @@ as a locked transitive dependency.</p>
 <span class="r-in"><span><span class="fu">plan_dependencies</span><span class="op">(</span><span class="va">app</span><span class="op">)</span></span></span>
 <span class="r-msg co"><span class="r-pr">#&gt;</span> </span>
 <span class="r-msg co"><span class="r-pr">#&gt;</span> <span style="color: #00BBBB;">──</span> <span style="font-weight: bold;">rpackit dependency plan</span> <span style="color: #00BBBB;">─────────────────────────────────────────────────────</span></span>
-<span class="r-msg co"><span class="r-pr">#&gt;</span> Path: /tmp/Rtmpare38x/rpackit-dependencies-195c3c56b5fe</span>
+<span class="r-msg co"><span class="r-pr">#&gt;</span> Path: /tmp/RtmpZA7jTo/rpackit-dependencies-190e4bb3323a</span>
 <span class="r-msg co"><span class="r-pr">#&gt;</span> 2 packages; 2 direct; 0 locked</span>
 <span class="r-out co"><span class="r-pr">#&gt;</span>   package version constraint roles direct required locked lock_source</span>
 <span class="r-out co"><span class="r-pr">#&gt;</span>  jsonlite    &lt;NA&gt;       &lt;NA&gt;  &lt;NA&gt;   TRUE     TRUE  FALSE        &lt;NA&gt;</span>
 <span class="r-out co"><span class="r-pr">#&gt;</span>     shiny    &lt;NA&gt;       &lt;NA&gt;  &lt;NA&gt;   TRUE     TRUE  FALSE        &lt;NA&gt;</span>
-<span class="r-out co"><span class="r-pr">#&gt;</span>  repository remote             provenance</span>
-<span class="r-out co"><span class="r-pr">#&gt;</span>        &lt;NA&gt;   &lt;NA&gt;      source:::@app.R:2</span>
-<span class="r-out co"><span class="r-pr">#&gt;</span>        &lt;NA&gt;   &lt;NA&gt; source:library@app.R:1</span>
+<span class="r-out co"><span class="r-pr">#&gt;</span>  repository remote             provenance constraint_satisfied</span>
+<span class="r-out co"><span class="r-pr">#&gt;</span>        &lt;NA&gt;   &lt;NA&gt;      source:::@app.R:2                   NA</span>
+<span class="r-out co"><span class="r-pr">#&gt;</span>        &lt;NA&gt;   &lt;NA&gt; source:library@app.R:1                   NA</span>
 </code></pre></div>
     </div>
   </main><aside class="col-md-3"><nav id="toc" aria-label="Table of contents"><h2>On this page</h2>
