@@ -95,8 +95,8 @@ validate_desktop_bundle(bundle$path, verify_runtime = TRUE)
 process <- start_desktop_app(bundle$path)
 desktop_app_status(process)
 launch <- desktop_app_launch_config(process)
-# Give `launch` to a native shell/proxy that supports protected header
-# injection. Do not serialize or log launch$headers.
+# `launch` is a trusted development/third-party native handoff.
+# Never serialize or log launch$headers.
 stop_desktop_app(process)
 ```
 
@@ -182,14 +182,32 @@ refuses to launch them.
 
 This is a secure backend launch contract, not yet a stock-browser
 workflow. Browsers cannot add a custom header to top-level navigation or
-ordinary `WebSocket()` calls. A Tauri request interceptor or native
-loopback proxy must keep the credential outside JavaScript, add it to
-every request for the exact `http://127.0.0.1:<port>` origin, and strip
-it before any external redirect. The threat model excludes malicious
-same-user processes, administrator or debugger access, and untrusted
-app/package code running inside the credential- bearing R process. Tauri
-project generation, native executable packaging, static-web builders,
-and server builders remain later milestones.
+ordinary `WebSocket()` calls. [Transport contract version
+2](https://github.com/rpackit/roadmap/blob/main/TAURI_SECURE_TRANSPORT.md)
+defines an authenticated native loopback reverse proxy as the
+generated-app baseline, not a direct request interceptor or bare
+loopback proxy. Native code sends a third, one-time secret only on the
+fixed bootstrap request; the HTTP response creates a host-only, HttpOnly
+proxy-session cookie. That cookie authenticates each later HTTP and
+WebSocket request before the proxy dials the fixed Shiny upstream,
+strips browser credentials and spoofed forwarding fields, and injects
+exactly one `Shiny-Shared-Secret` upstream. No credential is placed in
+the browser-facing URL or JavaScript. A generated app owns launcher
+protocol 2 directly and does not call or serialize the R-level
+[`desktop_app_launch_config()`](https://rpackit.github.io/rpackit/reference/desktop_app_launch_config.md)
+handoff.
+
+The pre-release [`rpackit-tauri` Windows
+spike](https://github.com/rpackit/rpackit-tauri) exercises this contract
+with a real WebView2 development runtime. It is not a generated
+application, supported installer, or release-ready transport; the
+fixed-runtime, crash-persistence, browser-escape, resource-abuse,
+malformed-upstream, and listener-overlap matrix remains open. The threat
+model excludes malicious same-user processes, administrator or debugger
+access, and untrusted app/package code running inside the
+credential-bearing R process. Tauri project generation, native
+executable packaging, static-web builders, and server builders remain
+later milestones.
 
 If process termination succeeds but private lifecycle files cannot be
 removed, the error retains the managed process handle so
