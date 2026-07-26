@@ -117,6 +117,7 @@ test_that("DESCRIPTION and renv.lock retain precedence and provenance", {
 
   expect_identical(dplyr$version, "1.1.4")
   expect_identical(dplyr$constraint, ">= 1.1.0")
+  expect_true(dplyr$constraint_satisfied)
   expect_identical(dplyr$roles, "Imports")
   expect_true(dplyr$direct)
   expect_true(dplyr$locked)
@@ -193,6 +194,19 @@ test_that("read, DESCRIPTION, and lockfile failures are explicit", {
     class = "rpackit_dependency_description_parse_error"
   )
 
+  bad_constraint <- make_dependency_app(list(
+    "DESCRIPTION" = c(
+      "Package: dependencyfixture",
+      "Version: 0.0.1",
+      "Imports: goodpkg (>=1.0)"
+    )
+  ))
+  expect_error(
+    plan_dependencies(bad_constraint),
+    regexp = "Invalid version requirement",
+    class = "rpackit_dependency_description_parse_error"
+  )
+
   bad_lock <- make_dependency_app(list(
     "renv.lock" = '{"Packages": {"shiny": {"Version": }}}'
   ))
@@ -210,6 +224,152 @@ test_that("read, DESCRIPTION, and lockfile failures are explicit", {
     regexp = "has no Version field",
     class = "rpackit_dependency_lockfile_parse_error"
   )
+
+  invalid_version <- make_dependency_app(list(
+    "renv.lock" = paste0(
+      '{"Packages": {"shiny": ',
+      '{"Version": "not-a-version", "Source": "Repository"}}}'
+    )
+  ))
+  expect_error(
+    plan_dependencies(invalid_version),
+    regexp = "invalid Version field",
+    class = "rpackit_dependency_lockfile_parse_error"
+  )
+})
+
+test_that("lockfile completeness and DESCRIPTION constraints fail visibly", {
+  path <- make_dependency_app(list(
+    "app.R" = c(
+      "stats::median(1:3)",
+      "MASS::ginv(diag(2))",
+      "shiny::shinyApp(shiny::fluidPage(), function(input, output) {})"
+    ),
+    "DESCRIPTION" = c(
+      "Package: dependencyfixture",
+      "Version: 0.0.1",
+      "Imports: shiny (>= 2.0.0), jsonlite"
+    ),
+    "renv.lock" = c(
+      "{",
+      '  "Packages": {',
+      '    "shiny": {',
+      '      "Version": "1.9.0",',
+      '      "Source": "Repository",',
+      '      "Repository": "CRAN"',
+      "    }",
+      "  }",
+      "}"
+    )
+  ))
+
+  plan <- plan_dependencies(path)
+  errors <- plan$diagnostics[plan$diagnostics$severity == "error", , drop = FALSE]
+
+  expect_setequal(
+    errors$code,
+    c(
+      "lockfile-missing-required-package",
+      "lockfile-version-constraint-mismatch"
+    )
+  )
+  expect_match(
+    errors$message[errors$code == "lockfile-missing-required-package"],
+    "jsonlite"
+  )
+  expect_false(dependency_row(plan, "shiny")$constraint_satisfied)
+  expect_false(any(grepl(
+    "stats|MASS",
+    errors$message
+  )))
+})
+
+test_that("DESCRIPTION Remotes require exact lockfile provenance", {
+  secret <- "do-not-print-this-token"
+  description <- c(
+    "Package: dependencyfixture",
+    "Version: 0.0.1",
+    "Imports: shiny",
+    paste0(
+      "Remotes: shiny=git::https://user:",
+      secret,
+      "@example.test/shiny.git"
+    )
+  )
+  unlocked <- make_dependency_app(list(
+    "app.R" = "shiny::fluidPage()",
+    "DESCRIPTION" = description
+  ))
+
+  plan <- plan_dependencies(unlocked)
+  remote_error <- plan$diagnostics[
+    plan$diagnostics$code == "description-remotes-without-lockfile",
+    ,
+    drop = FALSE
+  ]
+  expect_identical(nrow(remote_error), 1L)
+  expect_identical(remote_error$severity, "error")
+  expect_identical(remote_error$line, 4L)
+  expect_false(grepl(secret, remote_error$message, fixed = TRUE))
+  expect_true(plan$has_description_remotes)
+  expect_identical(plan$description_remotes_count, 1L)
+  expect_false(grepl(
+    secret,
+    paste(utils::capture.output(str(plan)), collapse = "\n"),
+    fixed = TRUE
+  ))
+  check <- check_app(unlocked, quiet = TRUE)
+  desktop <- check$targets[
+    check$targets$target == "portable desktop",
+    ,
+    drop = FALSE
+  ]
+  expect_identical(desktop$status, "maybe")
+  expect_match(desktop$reason, "dependency-plan error")
+  expect_identical(nrow(check$findings$dependency_errors), 1L)
+
+  locked <- make_dependency_app(list(
+    "app.R" = "shiny::fluidPage()",
+    "DESCRIPTION" = description,
+    "renv.lock" = c(
+      "{",
+      '  "Packages": {',
+      '    "shiny": {',
+      '      "Version": "1.11.1",',
+      '      "Source": "Git",',
+      paste0(
+        '      "RemoteUrl": "https://user:lock-secret@example.test/',
+        'shiny.git?token=query-secret#private"'
+      ),
+      "    }",
+      "  }",
+      "}"
+    )
+  ))
+  locked_plan <- plan_dependencies(locked)
+  expect_false(any(
+    locked_plan$diagnostics$code == "description-remotes-without-lockfile"
+  ))
+  locked_output <- paste(
+    utils::capture.output(str(locked_plan)),
+    collapse = "\n"
+  )
+  expect_false(grepl(
+    "lock-secret|query-secret|#private",
+    locked_output
+  ))
+  expect_match(
+    dependency_row(locked_plan, "shiny")$remote,
+    "<redacted>",
+    fixed = TRUE
+  )
+})
+
+test_that("dependency version comparisons cover DESCRIPTION operators", {
+  expect_true(rpackit:::.dependency_version_satisfies("1.2-3", ">= 1.2.0"))
+  expect_true(rpackit:::.dependency_version_satisfies("1.2.3", "= 1.2-3"))
+  expect_true(rpackit:::.dependency_version_satisfies("1.2.3", "!= 1.2.4"))
+  expect_false(rpackit:::.dependency_version_satisfies("2.0.0", "< 2.0.0"))
 })
 
 test_that("empty applications and arguments have stable behavior", {

@@ -6,10 +6,11 @@ Authors@R:
            role = c("aut", "cre"))
 Description: Inspects R application projects and the local build environment
     before packaging. It recognizes common Shiny layouts, plans dependencies
-    from parsed R source, package metadata, and lockfiles, resolves verified
-    portable R runtimes, prepares atomic desktop resource bundles, manages
-    loopback Shiny processes, and recommends portable desktop, static web, and
-    dynamic server targets.
+    from parsed R source, package metadata, and lockfiles, validates exact
+    dependency sources and version constraints, resolves verified portable R
+    runtimes, prepares atomic desktop resource bundles, manages loopback Shiny
+    processes, and recommends portable desktop, static web, and dynamic server
+    targets.
 License: MIT + file LICENSE
 URL: https://rpackit.github.io/rpackit/,
     https://github.com/rpackit/rpackit

@@ -3,6 +3,20 @@ url: https://rpackit.github.io/rpackit/
 template:
   bootstrap: 5
 
+development:
+  mode: unreleased
+
+home:
+  sidebar:
+    structure: [project, license, authors, toc]
+    components:
+      project:
+        title: Project
+        text: |
+          [Source code](https://github.com/rpackit/rpackit)
+
+          [Report a bug](https://github.com/rpackit/rpackit/issues)
+
 reference:
 - title: Inspect applications and environments
   contents:
@@ -27,3 +41,6 @@ articles:
 - title: Get started
   contents:
   - getting-started
+
+news:
+  cran_dates: false

@@ -177,16 +177,41 @@
 }
 
 .desktop_version_comparison <- function(version, operator, required) {
-  version <- numeric_version(version)
-  required <- numeric_version(required)
-  switch(operator,
-    ">=" = version >= required,
-    ">" = version > required,
-    "<=" = version <= required,
-    "<" = version < required,
-    "=" = version == required,
-    "==" = version == required,
-    FALSE
+  .dependency_version_satisfies(
+    version,
+    paste(operator, required)
+  )
+}
+
+.desktop_validate_dependency_plan <- function(plan) {
+  errors <- plan$diagnostics[
+    plan$diagnostics$severity == "error",
+    ,
+    drop = FALSE
+  ]
+  if (!nrow(errors)) {
+    return(invisible(plan))
+  }
+  messages <- vapply(seq_len(nrow(errors)), function(index) {
+    diagnostic <- errors[index, , drop = FALSE]
+    location <- if (is.na(diagnostic$line)) {
+      diagnostic$file
+    } else {
+      paste0(diagnostic$file, ":", diagnostic$line)
+    }
+    paste0(location, " - ", diagnostic$message)
+  }, character(1))
+  bullets <- c(
+    "Dependency plan cannot be installed safely.",
+    stats::setNames(messages, rep("x", length(messages))),
+    "i" = paste0(
+      "Run plan_dependencies() and resolve every error diagnostic before ",
+      "packaging."
+    )
+  )
+  cli::cli_abort(
+    bullets,
+    class = "rpackit_dependency_plan_error"
   )
 }
 
@@ -215,7 +240,7 @@
     length(constraint) == 1L &&
     !is.na(constraint)) {
     match <- regexec(
-      "^\\s*(>=|<=|==|=|>|<)\\s*([0-9]+(?:\\.[0-9]+){1,2})\\s*$",
+      "^\\s*(>=|<=|==|!=|=|>|<)\\s*([0-9]+(?:[.-][0-9]+)+)\\s*$",
       constraint,
       perl = TRUE
     )
@@ -662,6 +687,100 @@
 
 .desktop_launcher_packages <- c("jsonlite", "later", "shiny")
 
+.desktop_dependency_constraints <- function(plan) {
+  references <- plan$references[
+    plan$references$origin == "DESCRIPTION" &
+      plan$references$detail %in% .dependency_required_roles &
+      !is.na(plan$references$requirement),
+    ,
+    drop = FALSE
+  ]
+  if (!nrow(references)) {
+    return(data.frame(
+      package = character(),
+      operator = character(),
+      version = character(),
+      requirement = character(),
+      stringsAsFactors = FALSE
+    ))
+  }
+  references <- unique(references[c("package", "requirement")])
+  parsed <- lapply(seq_len(nrow(references)), function(index) {
+    .parse_dependency_version_requirement(
+      references$requirement[[index]],
+      package = references$package[[index]],
+      field = "dependency plan",
+      relative_path = "DESCRIPTION"
+    )
+  })
+  data.frame(
+    package = references$package,
+    operator = vapply(parsed, `[[`, character(1), "operator"),
+    version = vapply(parsed, `[[`, character(1), "version"),
+    requirement = references$requirement,
+    stringsAsFactors = FALSE
+  )
+}
+
+.desktop_constraint_variable_lines <- function(constraints) {
+  c(
+    sprintf(
+      "constraint_packages <- %s",
+      .desktop_r_literal(constraints$package)
+    ),
+    sprintf(
+      "constraint_operators <- %s",
+      .desktop_r_literal(constraints$operator)
+    ),
+    sprintf(
+      "constraint_versions <- %s",
+      .desktop_r_literal(constraints$version)
+    )
+  )
+}
+
+.desktop_constraint_check_lines <- function() {
+  c(
+    "if (length(constraint_packages)) {",
+    "  installed_versions <- vapply(",
+    "    constraint_packages,",
+    "    function(package) as.character(utils::packageVersion(package)),",
+    "    character(1)",
+    "  )",
+    "  constraint_ok <- vapply(seq_along(constraint_packages), function(index) {",
+    "    comparison <- utils::compareVersion(",
+    "      installed_versions[[index]],",
+    "      constraint_versions[[index]]",
+    "    )",
+    "    switch(constraint_operators[[index]],",
+    "      '>=' = comparison >= 0L,",
+    "      '>' = comparison > 0L,",
+    "      '<=' = comparison <= 0L,",
+    "      '<' = comparison < 0L,",
+    "      '=' = comparison == 0L,",
+    "      '==' = comparison == 0L,",
+    "      '!=' = comparison != 0L,",
+    "      FALSE",
+    "    )",
+    "  }, logical(1))",
+    "  if (any(!constraint_ok)) {",
+    "    failures <- paste0(",
+    "      constraint_packages[!constraint_ok],",
+    "      ' ', installed_versions[!constraint_ok],",
+    "      ' does not satisfy ',",
+    "      constraint_operators[!constraint_ok], ' ',",
+    "      constraint_versions[!constraint_ok]",
+    "    )",
+    "    stop(",
+    "      'Bundled dependency version requirements are not satisfied: ',",
+    "      paste(failures, collapse = '; '),",
+    "      call. = FALSE",
+    "    )",
+    "  }",
+    "}"
+  )
+}
+
 .desktop_install_dependencies <- function(resources, plan, repos) {
   runtime <- .desktop_runtime(file.path(resources, "R"))
   rscript <- file.path(runtime$path, runtime$rscript)
@@ -679,6 +798,7 @@
     .desktop_launcher_packages,
     plan$dependencies$package[plan$dependencies$required]
   )))
+  constraints <- .desktop_dependency_constraints(plan)
   script <- tempfile("rpackit-install-", tmpdir = dirname(resources))
   on.exit(unlink(script, force = TRUE), add = TRUE)
   locked <- !is.na(plan$lockfile)
@@ -687,6 +807,7 @@
     sprintf("app_path <- %s", .desktop_r_literal(app)),
     sprintf("repos <- %s", .desktop_r_literal(repos)),
     sprintf("packages <- %s", .desktop_r_literal(packages)),
+    .desktop_constraint_variable_lines(constraints),
     ".libPaths(unique(c(library_path, .libPaths())))",
     "options(repos = repos)"
   )
@@ -723,6 +844,7 @@
     "    call. = FALSE",
     "  )",
     "}",
+    .desktop_constraint_check_lines(),
     sprintf(
       "minimum_shiny_version <- %s",
       .desktop_r_literal(.desktop_minimum_secure_shiny_version)
@@ -745,7 +867,8 @@
   )
   list(
     packages = packages,
-    strategy = if (locked) "renv-restore" else "install-packages"
+    strategy = if (locked) "renv-restore" else "install-packages",
+    constraints = constraints
   )
 }
 
@@ -758,6 +881,7 @@
       dependency_plan$dependencies$required
     ]
   )))
+  constraints <- .desktop_dependency_constraints(dependency_plan)
   list(
     schema_version = "1",
     bundle_type = "rpackit-desktop-resources",
@@ -809,7 +933,14 @@
       strategy = if (installed) install_result$strategy else "not-installed",
       packages = as.list(packages),
       locked_r_version = dependency_plan$locked_r_version,
-      r_constraint = dependency_plan$r_constraint
+      r_constraint = dependency_plan$r_constraint,
+      constraints = lapply(seq_len(nrow(constraints)), function(index) {
+        list(
+          package = constraints$package[[index]],
+          requirement = constraints$requirement[[index]]
+        )
+      }),
+      constraints_verified = isTRUE(installed)
     ),
     created_by = list(
       package = "rpackit",
@@ -837,6 +968,12 @@
 #' on a system R installation at run time. By default, required packages are
 #' installed into the copied runtime. A `renv.lock` uses `renv::restore()`;
 #' otherwise the parsed dependency plan is installed from `repos`.
+#' Required packages missing from a lockfile and locked versions that violate
+#' `DESCRIPTION` fail before runtime copying. A `DESCRIPTION` `Remotes` field
+#' also requires an exact `renv.lock`; it is never silently replaced by a
+#' same-named repository package. After either installation strategy finishes,
+#' every required package version constraint is checked inside the copied
+#' runtime before the bundle can be published.
 #' When `runtime_dir = NULL`, a verified runtime is resolved from the
 #' portable-R registry and reused from a SHA-256-keyed user cache when
 #' available. The lockfile R version and DESCRIPTION R constraint are checked
@@ -865,6 +1002,8 @@
 #'   `app_dir/dist/desktop-resources`.
 #' @param app_name Human-readable application name.
 #' @param install_packages Install required packages into the copied runtime.
+#'   When `FALSE`, dependency-plan errors remain inspectable and the manifest
+#'   records that packages and constraints were not verified.
 #' @param repos Repository URLs used when installing packages.
 #' @param verify_runtime Execute the supplied `Rscript` and read its exact R
 #'   version before copying it. An explicit runtime is still probed when
@@ -899,17 +1038,6 @@ prepare_desktop <- function(
   offline = FALSE
 ) {
   check <- check_app(app_dir, quiet = TRUE)
-  desktop_status <- check$targets$status[
-    check$targets$target == "portable desktop"
-  ]
-  if (!identical(desktop_status, "yes")) {
-    reason <- check$targets$reason[
-      check$targets$target == "portable desktop"
-    ]
-    cli::cli_abort(
-      "Application is not ready for portable desktop resources: {reason}."
-    )
-  }
   app_path <- check$path
   if (is.null(app_name)) {
     app_name <- basename(app_path)
@@ -929,6 +1057,26 @@ prepare_desktop <- function(
       cli::cli_abort(
         "{.arg install_packages}, {.arg verify_runtime}, {.arg quiet}, and ",
         "{.arg offline} must each be TRUE or FALSE."
+      )
+    }
+  }
+  if (isTRUE(install_packages)) {
+    .desktop_validate_dependency_plan(check$dependency_plan)
+  }
+  desktop_status <- check$targets$status[
+    check$targets$target == "portable desktop"
+  ]
+  if (!identical(desktop_status, "yes")) {
+    reason <- check$targets$reason[
+      check$targets$target == "portable desktop"
+    ]
+    dependency_only_risk <- !identical(check$app_type, "unknown") &&
+      nrow(check$findings$dependency_errors) &&
+      !check$findings$has_system_calls &&
+      !check$findings$has_reticulate
+    if (!isTRUE(dependency_only_risk) || isTRUE(install_packages)) {
+      cli::cli_abort(
+        "Application is not ready for portable desktop resources: {reason}."
       )
     }
   }
@@ -1112,7 +1260,67 @@ prepare_desktop <- function(
   path
 }
 
+.desktop_manifest_constraints <- function(value) {
+  if (is.null(value)) {
+    return(NULL)
+  }
+  invalid <- function() {
+    cli::cli_abort(
+      "Desktop manifest contains invalid dependency constraints."
+    )
+  }
+  if (!is.list(value)) {
+    invalid()
+  }
+  if (!length(value)) {
+    return(data.frame(
+      package = character(),
+      operator = character(),
+      version = character(),
+      requirement = character(),
+      stringsAsFactors = FALSE
+    ))
+  }
+  rows <- lapply(value, function(constraint) {
+    valid_shape <- is.list(constraint) &&
+      is.character(constraint$package) &&
+      length(constraint$package) == 1L &&
+      !is.na(constraint$package) &&
+      grepl("^[A-Za-z][A-Za-z0-9.]*$", constraint$package) &&
+      is.character(constraint$requirement) &&
+      length(constraint$requirement) == 1L &&
+      !is.na(constraint$requirement) &&
+      nzchar(constraint$requirement)
+    if (!valid_shape) {
+      invalid()
+    }
+    parsed <- tryCatch(
+      .parse_dependency_version_requirement(
+        constraint$requirement,
+        package = constraint$package,
+        field = "desktop manifest",
+        relative_path = "rpackit.json"
+      ),
+      error = function(error) NULL
+    )
+    if (is.null(parsed)) {
+      invalid()
+    }
+    data.frame(
+      package = constraint$package,
+      operator = parsed$operator,
+      version = parsed$version,
+      requirement = constraint$requirement,
+      stringsAsFactors = FALSE
+    )
+  })
+  result <- do.call(rbind, rows)
+  rownames(result) <- NULL
+  result
+}
+
 .desktop_verify_packages <- function(rscript, library, packages,
+                                     constraints,
                                      minimum_shiny_version = NULL) {
   packages <- unlist(packages, use.names = FALSE)
   if (!is.character(packages) || !length(packages) || anyNA(packages) ||
@@ -1127,6 +1335,7 @@ prepare_desktop <- function(
     c(
       sprintf("library_path <- %s", .desktop_r_literal(library)),
       sprintf("packages <- %s", .desktop_r_literal(packages)),
+      .desktop_constraint_variable_lines(constraints),
       ".libPaths(unique(c(library_path, .libPaths())))",
       "missing <- setdiff(packages, rownames(installed.packages()))",
       "if (length(missing)) {",
@@ -1136,6 +1345,7 @@ prepare_desktop <- function(
       "    call. = FALSE",
       "  )",
       "}",
+      .desktop_constraint_check_lines(),
       if (!is.null(minimum_shiny_version)) {
         c(
           sprintf(
@@ -1215,8 +1425,11 @@ prepare_desktop <- function(
 #' Validate a prepared desktop resource bundle
 #'
 #' Checks the resource topology, manifest version, application layout, portable
-#' runtime paths, and loopback-only launcher contract. Application code is not
-#' executed.
+#' runtime paths, loopback-only launcher contract, and exact agreement between
+#' the copied application's dependency plan and the manifest package and
+#' constraint records. Application code is parsed but never executed. With
+#' `verify_runtime = TRUE`, installed package presence and every recorded
+#' DESCRIPTION version constraint are rechecked inside the bundled runtime.
 #'
 #' @param bundle_dir Prepared bundle directory containing `resources/`.
 #' @param verify_runtime Execute the bundled `Rscript`, read `getRversion()`,
@@ -1277,6 +1490,34 @@ validate_desktop_bundle <- function(bundle_dir, verify_runtime = FALSE,
       is.na(manifest$dependencies$installed)) {
     cli::cli_abort(
       "Desktop manifest must explicitly record dependency installation."
+    )
+  }
+  if (!is.null(manifest$dependencies$constraints_verified)) {
+    verified <- manifest$dependencies$constraints_verified
+    if (!is.logical(verified) || length(verified) != 1L ||
+        is.na(verified) ||
+        (isTRUE(verified) && !isTRUE(manifest$dependencies$installed)) ||
+        (isTRUE(verified) &&
+          is.null(manifest$dependencies$constraints))) {
+      cli::cli_abort(
+        "Desktop manifest contains invalid dependency-constraint evidence."
+      )
+    }
+  }
+  manifest_constraints <- .desktop_manifest_constraints(
+    manifest$dependencies$constraints
+  )
+  manifest_packages <- unlist(
+    manifest$dependencies$packages,
+    use.names = FALSE
+  )
+  if (!is.character(manifest_packages) ||
+      !length(manifest_packages) ||
+      anyNA(manifest_packages) ||
+      any(!grepl("^[A-Za-z][A-Za-z0-9.]*$", manifest_packages)) ||
+      anyDuplicated(manifest_packages)) {
+    cli::cli_abort(
+      "Desktop manifest contains an invalid dependency package list."
     )
   }
   launcher_path <- .desktop_safe_manifest_path(
@@ -1368,6 +1609,42 @@ validate_desktop_bundle <- function(bundle_dir, verify_runtime = FALSE,
   }
   if (!identical(manifest$app$type, detected_app_type)) {
     cli::cli_abort("Desktop manifest app type does not match bundled files.")
+  }
+  bundled_plan <- plan_dependencies(app)
+  expected_packages <- sort(unique(c(
+    .desktop_launcher_packages,
+    bundled_plan$dependencies$package[
+      bundled_plan$dependencies$required
+    ]
+  )))
+  if (!identical(sort(manifest_packages), expected_packages)) {
+    cli::cli_abort(
+      "Desktop manifest dependencies do not match the bundled application."
+    )
+  }
+  expected_constraints <- .desktop_dependency_constraints(bundled_plan)
+  if (!is.null(manifest_constraints)) {
+    manifest_labels <- paste(
+      manifest_constraints$package,
+      manifest_constraints$requirement,
+      sep = "\r"
+    )
+    expected_labels <- paste(
+      expected_constraints$package,
+      expected_constraints$requirement,
+      sep = "\r"
+    )
+    if (anyDuplicated(manifest_labels) ||
+        !identical(sort(manifest_labels), sort(expected_labels))) {
+      cli::cli_abort(
+        "Desktop manifest constraints do not match the bundled application."
+      )
+    }
+  }
+  constraints_to_verify <- if (is.null(manifest_constraints)) {
+    expected_constraints
+  } else {
+    manifest_constraints
   }
   rscript <- .desktop_safe_manifest_path(
     resources,
@@ -1484,6 +1761,7 @@ validate_desktop_bundle <- function(bundle_dir, verify_runtime = FALSE,
         rscript,
         library,
         manifest$dependencies$packages,
+        constraints = constraints_to_verify,
         minimum_shiny_version = if (
           isTRUE(manifest$launcher$network_token_enforced)
         ) {
@@ -1506,7 +1784,11 @@ validate_desktop_bundle <- function(bundle_dir, verify_runtime = FALSE,
       ),
       runtime_version = manifest$runtime$r_version,
       runtime_source = runtime_source,
-      runtime_provenance = manifest$runtime$provenance
+      runtime_provenance = manifest$runtime$provenance,
+      dependency_constraints = nrow(expected_constraints),
+      dependency_constraints_verified = isTRUE(
+        manifest$dependencies$constraints_verified
+      )
     ),
     class = "rpackit_desktop_validation"
   )

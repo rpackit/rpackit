@@ -46,6 +46,89 @@
   )
 }
 
+.dependency_required_roles <- c("Depends", "Imports", "LinkingTo")
+
+.rpackit_standard_packages <- c(
+  "base", "compiler", "datasets", "graphics", "grDevices", "grid",
+  "methods", "parallel", "splines", "stats", "stats4", "tcltk",
+  "tools", "utils",
+  "boot", "class", "cluster", "codetools", "foreign", "KernSmooth",
+  "lattice", "MASS", "Matrix", "mgcv", "nlme", "nnet", "rpart",
+  "spatial", "survival"
+)
+
+.parse_dependency_version_requirement <- function(
+  requirement,
+  package,
+  field,
+  relative_path
+) {
+  pattern <- if (identical(package, "R")) {
+    "^\\s*(>=|<=|==|!=|=|>|<)\\s+([0-9]+(?:[.-][0-9]+)+|r[0-9]+)\\s*$"
+  } else {
+    "^\\s*(>=|<=|==|!=|=|>|<)\\s+([0-9]+(?:[.-][0-9]+)+)\\s*$"
+  }
+  match <- regexec(pattern, requirement, perl = TRUE)
+  pieces <- regmatches(requirement, match)[[1L]]
+  if (length(pieces) != 3L) {
+    cli::cli_abort(
+      paste0(
+        "Invalid version requirement {requirement} for {package} in ",
+        "{field} of {.path {relative_path}}."
+      ),
+      class = c(
+        "rpackit_dependency_description_parse_error",
+        "rpackit_dependency_parse_error"
+      )
+    )
+  }
+  if (!startsWith(pieces[[3L]], "r")) {
+    tryCatch(
+      numeric_version(pieces[[3L]]),
+      error = function(error) {
+        cli::cli_abort(
+          paste0(
+            "Invalid version requirement {requirement} for {package} in ",
+            "{field} of {.path {relative_path}}."
+          ),
+          class = c(
+            "rpackit_dependency_description_parse_error",
+            "rpackit_dependency_parse_error"
+          ),
+          parent = error
+        )
+      }
+    )
+  }
+  list(
+    operator = pieces[[2L]],
+    version = pieces[[3L]]
+  )
+}
+
+.dependency_version_satisfies <- function(version, requirement) {
+  parsed <- .parse_dependency_version_requirement(
+    requirement,
+    package = "dependency",
+    field = "dependency plan",
+    relative_path = "DESCRIPTION"
+  )
+  comparison <- utils::compareVersion(
+    as.character(version),
+    parsed$version
+  )
+  switch(parsed$operator,
+    ">=" = comparison >= 0L,
+    ">" = comparison > 0L,
+    "<=" = comparison <= 0L,
+    "<" = comparison < 0L,
+    "=" = comparison == 0L,
+    "==" = comparison == 0L,
+    "!=" = comparison != 0L,
+    FALSE
+  )
+}
+
 .collapse_dependency_rows <- function(rows, empty) {
   if (!length(rows)) {
     return(empty())
@@ -365,13 +448,22 @@
       )
     )
   }
+  requirement <- if (length(pieces) >= 3L && nzchar(pieces[[3L]])) {
+    trimws(pieces[[3L]])
+  } else {
+    NA_character_
+  }
+  if (!is.na(requirement)) {
+    .parse_dependency_version_requirement(
+      requirement,
+      package = pieces[[2L]],
+      field = field,
+      relative_path = relative_path
+    )
+  }
   list(
     package = pieces[[2L]],
-    requirement = if (length(pieces) >= 3L && nzchar(pieces[[3L]])) {
-      trimws(pieces[[3L]])
-    } else {
-      NA_character_
-    }
+    requirement = requirement
   )
 }
 
@@ -379,7 +471,9 @@
   if (!file.exists(path)) {
     return(list(
       references = .empty_dependency_references(),
-      r_constraint = NA_character_
+      r_constraint = NA_character_,
+      remotes = character(),
+      remotes_line = NA_integer_
     ))
   }
   relative_path <- .relative_app_path(path, app_path)
@@ -447,7 +541,21 @@
       references,
       .empty_dependency_references
     ),
-    r_constraint = r_constraint
+    r_constraint = r_constraint,
+    remotes = if (
+      "Remotes" %in% colnames(description) &&
+        !is.na(description[1L, "Remotes"]) &&
+        nzchar(trimws(description[1L, "Remotes"]))
+    ) {
+      trimws(strsplit(
+        description[1L, "Remotes"],
+        ",",
+        fixed = TRUE
+      )[[1L]])
+    } else {
+      character()
+    },
+    remotes_line = .description_field_line(lines, "Remotes")
   )
 }
 
@@ -476,7 +584,7 @@
     return(NA_character_)
   }
   if (!is.character(value) || length(value) != 1L || is.na(value) ||
-      !nzchar(value)) {
+      !nzchar(value) || grepl("[\r\n]", value)) {
     cli::cli_abort(
       "Package {package} in {.path {relative_path}} has an invalid {field} field.",
       class = c(
@@ -488,21 +596,33 @@
   value
 }
 
+.redact_dependency_remote <- function(value) {
+  value <- gsub(
+    "([A-Za-z][A-Za-z0-9+.-]*://)[^/@[:space:]]+@",
+    "\\1<redacted>@",
+    value,
+    perl = TRUE
+  )
+  value <- sub("\\?.*$", "?<redacted>", value, perl = TRUE)
+  sub("#.*$", "#<redacted>", value, perl = TRUE)
+}
+
 .lock_remote <- function(record, package, relative_path) {
   fields <- c(
     "RemoteType", "RemoteHost", "RemoteUsername", "RemoteRepo",
     "RemoteRef", "RemoteSha", "RemoteUrl"
   )
   values <- stats::setNames(lapply(fields, function(field) {
-    .scalar_lock_value(
+    value <- .scalar_lock_value(
       record[[field]],
       field,
       package,
       relative_path
     )
+    if (is.na(value)) value else .redact_dependency_remote(value)
   }), fields)
   if (!is.na(values$RemoteUrl)) {
-    return(values$RemoteUrl)
+    return(.redact_dependency_remote(values$RemoteUrl))
   }
   parts <- c(
     values$RemoteHost,
@@ -600,20 +720,46 @@
       relative_path,
       required = TRUE
     )
+    tryCatch(
+      numeric_version(version),
+      error = function(error) {
+        cli::cli_abort(
+          paste0(
+            "Package {package} in {.path {relative_path}} has an invalid ",
+            "Version field."
+          ),
+          class = c(
+            "rpackit_dependency_lockfile_parse_error",
+            "rpackit_dependency_parse_error"
+          ),
+          parent = error
+        )
+      }
+    )
+    source <- .scalar_lock_value(
+      record$Source,
+      "Source",
+      package,
+      relative_path
+    )
+    repository <- .scalar_lock_value(
+      record$Repository,
+      "Repository",
+      package,
+      relative_path
+    )
     records[[package]] <- list(
       version = version,
-      source = .scalar_lock_value(
-        record$Source,
-        "Source",
-        package,
-        relative_path
-      ),
-      repository = .scalar_lock_value(
-        record$Repository,
-        "Repository",
-        package,
-        relative_path
-      ),
+      source = if (is.na(source)) {
+        source
+      } else {
+        .redact_dependency_remote(source)
+      },
+      repository = if (is.na(repository)) {
+        repository
+      } else {
+        .redact_dependency_remote(repository)
+      },
       remote = .lock_remote(record, package, relative_path)
     )
     references[[length(references) + 1L]] <- .dependency_reference(
@@ -651,7 +797,6 @@
 
 .combine_dependency_plan <- function(references, lock_records) {
   package_names <- sort(unique(references$package))
-  required_roles <- c("Depends", "Imports", "LinkingTo")
   rows <- lapply(package_names, function(package) {
     package_references <- references[references$package == package, , drop = FALSE]
     lock_record <- lock_records[[package]]
@@ -689,7 +834,7 @@
       direct = any(package_references$origin %in% c("source", "DESCRIPTION")),
       required = !is.null(lock_record) ||
         any(package_references$origin == "source") ||
-        any(roles %in% required_roles),
+        any(roles %in% .dependency_required_roles),
       locked = !is.null(lock_record),
       lock_source = if (is.null(lock_record)) {
         NA_character_
@@ -707,6 +852,17 @@
         lock_record$remote
       },
       provenance = paste(unique(labels), collapse = "; "),
+      constraint_satisfied = if (is.null(lock_record) ||
+        !length(constraints)) {
+        NA
+      } else {
+        all(vapply(
+          constraints,
+          .dependency_version_satisfies,
+          logical(1),
+          version = lock_record$version
+        ))
+      },
       stringsAsFactors = FALSE
     )
   })
@@ -723,12 +879,104 @@
       repository = character(),
       remote = character(),
       provenance = character(),
+      constraint_satisfied = logical(),
       stringsAsFactors = FALSE
     ))
   }
   result <- do.call(rbind, rows)
   rownames(result) <- NULL
   result
+}
+
+.dependency_plan_diagnostics <- function(
+  references,
+  lock_records,
+  has_lockfile,
+  description_remotes,
+  remotes_line
+) {
+  rows <- list()
+  if (length(description_remotes) && !isTRUE(has_lockfile)) {
+    rows[[length(rows) + 1L]] <- .dependency_diagnostic(
+      code = "description-remotes-without-lockfile",
+      file = "DESCRIPTION",
+      line = remotes_line,
+      message = paste0(
+        "DESCRIPTION declares Remotes, but no renv.lock records exact ",
+        "package sources. Create and review a lockfile before packaging."
+      ),
+      severity = "error"
+    )
+  }
+  if (!isTRUE(has_lockfile)) {
+    return(.collapse_dependency_rows(
+      rows,
+      .empty_dependency_diagnostics
+    ))
+  }
+
+  required_rows <- references[
+    references$origin == "source" |
+      (
+        references$origin == "DESCRIPTION" &
+          references$detail %in% .dependency_required_roles
+      ),
+    ,
+    drop = FALSE
+  ]
+  required_packages <- setdiff(
+    unique(required_rows$package),
+    .rpackit_standard_packages
+  )
+  missing <- setdiff(required_packages, names(lock_records))
+  for (package in sort(missing)) {
+    reference <- required_rows[
+      required_rows$package == package,
+      ,
+      drop = FALSE
+    ][1L, , drop = FALSE]
+    rows[[length(rows) + 1L]] <- .dependency_diagnostic(
+      code = "lockfile-missing-required-package",
+      file = reference$file,
+      line = reference$line,
+      message = paste0(
+        "Package ", package,
+        " is required by the application but is absent from renv.lock."
+      ),
+      severity = "error"
+    )
+  }
+
+  constraint_rows <- references[
+    references$origin == "DESCRIPTION" &
+      !is.na(references$requirement),
+    ,
+    drop = FALSE
+  ]
+  for (index in seq_len(nrow(constraint_rows))) {
+    reference <- constraint_rows[index, , drop = FALSE]
+    record <- lock_records[[reference$package]]
+    if (is.null(record) ||
+        .dependency_version_satisfies(
+          record$version,
+          reference$requirement
+        )) {
+      next
+    }
+    required <- reference$detail %in% .dependency_required_roles
+    rows[[length(rows) + 1L]] <- .dependency_diagnostic(
+      code = "lockfile-version-constraint-mismatch",
+      file = reference$file,
+      line = reference$line,
+      message = paste0(
+        "renv.lock records ", reference$package, " ", record$version,
+        ", which does not satisfy DESCRIPTION requirement ",
+        reference$package, " (", reference$requirement, ")."
+      ),
+      severity = if (required) "error" else "warning"
+    )
+  }
+  .collapse_dependency_rows(rows, .empty_dependency_diagnostics)
 }
 
 #' Plan R application dependencies without executing application code
@@ -747,12 +995,20 @@
 #' application code is never evaluated.
 #'
 #' In `dependencies`, `version`, `lock_source`, `repository`, and `remote` come
-#' from `renv.lock`; `constraint` and `roles` come from `DESCRIPTION`; `direct`
-#' marks packages seen in source or DESCRIPTION; and `locked` marks packages
-#' present in the lockfile. `provenance` is a compact summary. The normalized
-#' `references` table is the authoritative record of each origin, file, source
-#' line, role or call type, and version requirement. Non-fatal findings such as
-#' a dynamic `library()` package name appear in `diagnostics`.
+#' from `renv.lock`; `constraint` and `roles` come from `DESCRIPTION`;
+#' `constraint_satisfied` reports whether a locked version satisfies every
+#' declared constraint; `direct` marks packages seen in source or DESCRIPTION;
+#' and `locked` marks packages present in the lockfile. `provenance` is a compact
+#' summary. The normalized `references` table is the authoritative record of
+#' each origin, file, source line, role or call type, and version requirement.
+#' Findings such as a dynamic `library()` package name appear in `diagnostics`.
+#' Error diagnostics identify unsafe installation plans, including required
+#' packages missing from a lockfile, locked versions that violate DESCRIPTION,
+#' and DESCRIPTION `Remotes` without an exact `renv.lock`.
+#' `has_description_remotes` and `description_remotes_count` expose only the
+#' presence and count of remote specifications, not their possibly
+#' credential-bearing text. Credential-bearing URL components in lockfile
+#' remote provenance are redacted before they enter the returned tables.
 #'
 #' Required DESCRIPTION fields (`Depends`, `Imports`, and `LinkingTo`) are
 #' included by default. Set `include_suggests = TRUE` to also include `Suggests`
@@ -807,8 +1063,16 @@ plan_dependencies <- function(app_dir, include_suggests = FALSE) {
   } else {
     .empty_dependency_references()
   }
-  diagnostics <- source_diagnostics[
-    vapply(source_diagnostics, nrow, integer(1)) > 0L
+  plan_diagnostics <- .dependency_plan_diagnostics(
+    references = references,
+    lock_records = lockfile$records,
+    has_lockfile = file.exists(lockfile_path),
+    description_remotes = description$remotes,
+    remotes_line = description$remotes_line
+  )
+  diagnostic_parts <- c(source_diagnostics, list(plan_diagnostics))
+  diagnostics <- diagnostic_parts[
+    vapply(diagnostic_parts, nrow, integer(1)) > 0L
   ]
   diagnostics <- if (length(diagnostics)) {
     result <- do.call(rbind, diagnostics)
@@ -844,7 +1108,9 @@ plan_dependencies <- function(app_dir, include_suggests = FALSE) {
       },
       r_constraint = description$r_constraint,
       locked_r_version = lockfile$r_version,
-      include_suggests = include_suggests
+      include_suggests = include_suggests,
+      has_description_remotes = length(description$remotes) > 0L,
+      description_remotes_count = length(description$remotes)
     ),
     class = "rpackit_dependency_plan"
   )
@@ -873,8 +1139,10 @@ print.rpackit_dependency_plan <- function(x, ...) {
       } else {
         paste0(diagnostic$file, ":", diagnostic$line)
       }
-      cli::cli_bullets(c(
-        "!" = paste0(location, " - ", diagnostic$message)
+      bullet <- paste0(location, " - ", diagnostic$message)
+      cli::cli_bullets(stats::setNames(
+        list(bullet),
+        if (identical(diagnostic$severity, "error")) "x" else "!"
       ))
     }
   }

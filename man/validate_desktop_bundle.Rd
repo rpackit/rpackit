@@ -19,6 +19,9 @@ An \code{rpackit_desktop_validation} object.
 }
 \description{
 Checks the resource topology, manifest version, application layout, portable
-runtime paths, and loopback-only launcher contract. Application code is not
-executed.
+runtime paths, loopback-only launcher contract, and exact agreement between
+the copied application's dependency plan and the manifest package and
+constraint records. Application code is parsed but never executed. With
+\code{verify_runtime = TRUE}, installed package presence and every recorded
+DESCRIPTION version constraint are rechecked inside the bundled runtime.
 }

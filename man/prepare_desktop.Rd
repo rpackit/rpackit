@@ -30,7 +30,9 @@ resolve a verified runtime for the current platform and architecture.}
 
 \item{app_name}{Human-readable application name.}
 
-\item{install_packages}{Install required packages into the copied runtime.}
+\item{install_packages}{Install required packages into the copied runtime.
+When \code{FALSE}, dependency-plan errors remain inspectable and the manifest
+records that packages and constraints were not verified.}
 
 \item{repos}{Repository URLs used when installing packages.}
 
@@ -74,6 +76,12 @@ runtime is copied into the bundle, so the generated resources do not depend
 on a system R installation at run time. By default, required packages are
 installed into the copied runtime. A \code{renv.lock} uses \code{renv::restore()};
 otherwise the parsed dependency plan is installed from \code{repos}.
+Required packages missing from a lockfile and locked versions that violate
+\code{DESCRIPTION} fail before runtime copying. A \code{DESCRIPTION} \code{Remotes} field
+also requires an exact \code{renv.lock}; it is never silently replaced by a
+same-named repository package. After either installation strategy finishes,
+every required package version constraint is checked inside the copied
+runtime before the bundle can be published.
 When \code{runtime_dir = NULL}, a verified runtime is resolved from the
 portable-R registry and reused from a SHA-256-keyed user cache when
 available. The lockfile R version and DESCRIPTION R constraint are checked

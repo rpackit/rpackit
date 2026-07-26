@@ -283,6 +283,11 @@ check_app <- function(app_dir, quiet = FALSE) {
   }
   files <- .app_r_files(path)
   dependency_plan <- plan_dependencies(path)
+  dependency_errors <- dependency_plan$diagnostics[
+    dependency_plan$diagnostics$severity == "error",
+    ,
+    drop = FALSE
+  ]
   source_references <- dependency_plan$references[
     dependency_plan$references$origin == "source",
     ,
@@ -364,6 +369,17 @@ check_app <- function(app_dir, quiet = FALSE) {
   if (has_reticulate) {
     desktop_risks <- c(desktop_risks, "Python runtime must be bundled")
   }
+  if (nrow(dependency_errors)) {
+    desktop_risks <- c(
+      desktop_risks,
+      paste0(
+        nrow(dependency_errors),
+        " dependency-plan error",
+        if (nrow(dependency_errors) == 1L) "" else "s",
+        " must be resolved"
+      )
+    )
+  }
   desktop_status <- if (!structure_valid) {
     "no"
   } else if (length(desktop_risks)) {
@@ -371,7 +387,13 @@ check_app <- function(app_dir, quiet = FALSE) {
   } else {
     "yes"
   }
-  server_status <- if (structure_valid) "yes" else "no"
+  server_status <- if (!structure_valid) {
+    "no"
+  } else if (nrow(dependency_errors)) {
+    "maybe"
+  } else {
+    "yes"
+  }
   targets <- rbind(
     .target_row(
       "portable desktop",
@@ -382,7 +404,18 @@ check_app <- function(app_dir, quiet = FALSE) {
     .target_row(
       "dynamic server",
       server_status,
-      if (structure_valid) "supported Shiny layout" else "unrecognized app layout"
+      if (!structure_valid) {
+        "unrecognized app layout"
+      } else if (nrow(dependency_errors)) {
+        paste0(
+          nrow(dependency_errors),
+          " dependency-plan error",
+          if (nrow(dependency_errors) == 1L) "" else "s",
+          " must be resolved"
+        )
+      } else {
+        "supported Shiny layout"
+      }
     )
   )
   findings <- list(
@@ -400,7 +433,8 @@ check_app <- function(app_dir, quiet = FALSE) {
       paste0("^", gsub("([][{}()+*^$|\\\\?.])", "\\\\\\1", path), "/?"),
       "",
       gsub("\\\\", "/", large_data)
-    )
+    ),
+    dependency_errors = dependency_errors
   )
   recommendation <- c(
     if (desktop_status == "yes") {

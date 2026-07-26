@@ -34,12 +34,20 @@ comments and string contents are never treated as package calls, and
 application code is never evaluated.
 
 In \code{dependencies}, \code{version}, \code{lock_source}, \code{repository}, and \code{remote} come
-from \code{renv.lock}; \code{constraint} and \code{roles} come from \code{DESCRIPTION}; \code{direct}
-marks packages seen in source or DESCRIPTION; and \code{locked} marks packages
-present in the lockfile. \code{provenance} is a compact summary. The normalized
-\code{references} table is the authoritative record of each origin, file, source
-line, role or call type, and version requirement. Non-fatal findings such as
-a dynamic \code{library()} package name appear in \code{diagnostics}.
+from \code{renv.lock}; \code{constraint} and \code{roles} come from \code{DESCRIPTION};
+\code{constraint_satisfied} reports whether a locked version satisfies every
+declared constraint; \code{direct} marks packages seen in source or DESCRIPTION;
+and \code{locked} marks packages present in the lockfile. \code{provenance} is a compact
+summary. The normalized \code{references} table is the authoritative record of
+each origin, file, source line, role or call type, and version requirement.
+Findings such as a dynamic \code{library()} package name appear in \code{diagnostics}.
+Error diagnostics identify unsafe installation plans, including required
+packages missing from a lockfile, locked versions that violate DESCRIPTION,
+and DESCRIPTION \code{Remotes} without an exact \code{renv.lock}.
+\code{has_description_remotes} and \code{description_remotes_count} expose only the
+presence and count of remote specifications, not their possibly
+credential-bearing text. Credential-bearing URL components in lockfile
+remote provenance are redacted before they enter the returned tables.
 
 Required DESCRIPTION fields (\code{Depends}, \code{Imports}, and \code{LinkingTo}) are
 included by default. Set \code{include_suggests = TRUE} to also include \code{Suggests}

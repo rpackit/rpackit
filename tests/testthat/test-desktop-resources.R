@@ -125,11 +125,185 @@ test_that("desktop manifest records runtime, app, and dependencies honestly", {
   )
   expect_false(manifest$launcher$authentication$token_in_url)
   expect_false(manifest$dependencies$installed)
+  expect_false(manifest$dependencies$constraints_verified)
+  expect_identical(length(manifest$dependencies$constraints), 0L)
   expect_true(all(
     c("jsonlite", "later", "shiny") %in%
       unlist(manifest$dependencies$packages)
   ))
   expect_match(manifest$runtime$rscript, "^R/")
+})
+
+test_that("dependency-plan errors fail before runtime copying", {
+  app <- make_desktop_app()
+  secret <- "do-not-print-this-token"
+  writeLines(
+    c(
+      "Package: remotefixture",
+      "Version: 0.0.1",
+      "Imports: shiny (>= 1.9.0)",
+      paste0(
+        "Remotes: shiny=git::https://user:",
+        secret,
+        "@example.test/shiny.git"
+      )
+    ),
+    file.path(app, "DESCRIPTION")
+  )
+  output <- tempfile("rpackit-dependency-preflight-")
+  condition <- expect_error(
+    prepare_desktop(
+      app,
+      make_fake_runtime(),
+      output_dir = output,
+      install_packages = TRUE,
+      verify_runtime = FALSE,
+      quiet = TRUE
+    ),
+    regexp = "Dependency plan cannot be installed safely",
+    class = "rpackit_dependency_plan_error"
+  )
+  expect_false(dir.exists(output))
+  expect_false(grepl(secret, conditionMessage(condition), fixed = TRUE))
+
+  uninstalled_output <- tempfile("rpackit-uninstalled-remote-")
+  result <- prepare_desktop(
+    app,
+    make_fake_runtime(),
+    output_dir = uninstalled_output,
+    install_packages = FALSE,
+    verify_runtime = FALSE,
+    quiet = TRUE
+  )
+  expect_false(result$dependencies_installed)
+  manifest <- jsonlite::fromJSON(
+    file.path(uninstalled_output, "resources", "rpackit.json"),
+    simplifyVector = FALSE
+  )
+  expect_false(manifest$dependencies$constraints_verified)
+  expect_identical(
+    manifest$dependencies$constraints[[1L]]$package,
+    "shiny"
+  )
+  expect_identical(
+    manifest$dependencies$constraints[[1L]]$requirement,
+    ">= 1.9.0"
+  )
+  manifest$dependencies$constraints_verified <- TRUE
+  jsonlite::write_json(
+    manifest,
+    file.path(uninstalled_output, "resources", "rpackit.json"),
+    auto_unbox = TRUE,
+    pretty = TRUE,
+    null = "null"
+  )
+  expect_error(
+    validate_desktop_bundle(uninstalled_output, quiet = TRUE),
+    "invalid dependency-constraint evidence"
+  )
+})
+
+test_that("dependency installation script verifies every DESCRIPTION version", {
+  app <- make_desktop_app()
+  writeLines(
+    c(
+      "Package: constraintfixture",
+      "Version: 0.0.1",
+      "Imports: shiny (>= 1.9.0), jsonlite (!= 1.0.0)"
+    ),
+    file.path(app, "DESCRIPTION")
+  )
+  plan <- plan_dependencies(app)
+  resources <- tempfile("rpackit-install-script-")
+  dir.create(resources)
+  rpackit:::.desktop_copy_tree(
+    make_fake_runtime(),
+    file.path(resources, "R")
+  )
+  dir.create(file.path(resources, "app"))
+  captured <- new.env(parent = emptyenv())
+  local_mocked_bindings(
+    .desktop_run_rscript = function(rscript, arguments, context) {
+      script <- gsub("^[\"']|[\"']$", "", arguments[[2L]])
+      captured$lines <- readLines(script, warn = FALSE)
+      invisible(character())
+    },
+    .package = "rpackit"
+  )
+
+  result <- rpackit:::.desktop_install_dependencies(
+    resources,
+    plan,
+    c(CRAN = "https://cloud.r-project.org")
+  )
+  script <- paste(captured$lines, collapse = "\n")
+
+  expect_identical(
+    result$constraints$package,
+    c("shiny", "jsonlite")
+  )
+  expect_identical(
+    result$constraints$operator,
+    c(">=", "!=")
+  )
+  expect_match(script, "utils::compareVersion", fixed = TRUE)
+  expect_match(
+    script,
+    "Bundled dependency version requirements are not satisfied",
+    fixed = TRUE
+  )
+})
+
+test_that("bundle validation binds dependency evidence to the copied app", {
+  app <- make_desktop_app()
+  writeLines(
+    c(
+      "Package: manifestfixture",
+      "Version: 0.0.1",
+      "Imports: shiny (>= 1.9.0)"
+    ),
+    file.path(app, "DESCRIPTION")
+  )
+  output <- tempfile("rpackit-manifest-dependencies-")
+  prepare_desktop(
+    app,
+    make_fake_runtime(),
+    output_dir = output,
+    install_packages = FALSE,
+    verify_runtime = FALSE,
+    quiet = TRUE
+  )
+  manifest_path <- file.path(output, "resources", "rpackit.json")
+  manifest <- jsonlite::fromJSON(manifest_path, simplifyVector = FALSE)
+  original <- manifest
+
+  manifest$dependencies$constraints[[1L]]$requirement <- ">= 99.0.0"
+  jsonlite::write_json(
+    manifest,
+    manifest_path,
+    auto_unbox = TRUE,
+    pretty = TRUE,
+    null = "null"
+  )
+  expect_error(
+    validate_desktop_bundle(output, quiet = TRUE),
+    "constraints do not match"
+  )
+
+  original$dependencies$packages <- original$dependencies$packages[
+    unlist(original$dependencies$packages, use.names = FALSE) != "jsonlite"
+  ]
+  jsonlite::write_json(
+    original,
+    manifest_path,
+    auto_unbox = TRUE,
+    pretty = TRUE,
+    null = "null"
+  )
+  expect_error(
+    validate_desktop_bundle(output, quiet = TRUE),
+    "dependencies do not match"
+  )
 })
 
 test_that("legacy bundles require matching protocol-1 launcher content", {
@@ -196,6 +370,8 @@ test_that("bundle validation accepts legacy schema-v1 runtime metadata", {
   manifest <- jsonlite::fromJSON(manifest_path, simplifyVector = FALSE)
   manifest$runtime$source <- NULL
   manifest$runtime$r_version <- NULL
+  manifest$dependencies$constraints <- NULL
+  manifest$dependencies$constraints_verified <- NULL
   jsonlite::write_json(
     manifest,
     manifest_path,
