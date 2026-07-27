@@ -80,7 +80,7 @@ jobs:
       - name: Install the current rpackit source
         shell: powershell
         run: |
-          R CMD INSTALL .
+          R.exe CMD INSTALL .
           if ($LASTEXITCODE -ne 0) {
             throw "Current rpackit source installation failed."
           }
