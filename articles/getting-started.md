@@ -173,7 +173,7 @@ rejects manifest package or constraint drift. Set
 `verify_runtime = TRUE` when you also want validation to execute bundled
 R and recheck installed package versions.
 
-## Generate native source
+## Generate a native Windows project
 
 Generation requires a dependency-complete Windows bundle. Run it in a
 build workspace or Windows GitHub Actions runner so the copied portable
@@ -199,13 +199,13 @@ to a temporary file, and removed after use. The generated project
 excludes the transport acceptance spike and testkit. Its
 `rpackit-native.json` binds the application identity, icon and
 resource-manifest digests, template integrity, contract versions,
-reviewed tool/runtime minima, and explicit launch mode.
+reviewed tool/runtime minima, and packaged/development launch modes.
 
-This step generates source only. It leaves Tauri installer bundling
-disabled and records that clean-machine verification has not happened.
-Heavy Rust compilation belongs in the maintained Windows workflow; do
-not commit Cargo `target/`, executables, installers, or copied portable
-runtime archives.
+This step generates packaging-ready source with a current-user NSIS
+target, but records that clean-machine verification has not happened.
+Heavy Rust compilation and install/run verification belong in the
+maintained Windows workflow; do not commit Cargo `target/`, executables,
+installers, or copied portable runtime archives.
 
 ## Run and stop the prepared app
 
@@ -238,7 +238,7 @@ supplies that cleanup path.
 [`prepare_desktop()`](https://rpackit.github.io/rpackit/reference/prepare_desktop.md)
 creates the portable resource contract and
 [`generate_tauri_app()`](https://rpackit.github.io/rpackit/reference/generate_tauri_app.md)
-renders maintained native source around it. Neither function claims a
-supported Tauri installer. The [rpackit
+renders a packaging-ready native project around it. Generation alone
+does not claim a verified installer. The [rpackit
 roadmap](https://github.com/rpackit/roadmap) records the native
 transport and release gates separately from this R workflow.

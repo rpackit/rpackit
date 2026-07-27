@@ -4,12 +4,14 @@ resource bundle, verifies a versioned rpackit Tauri source template, and
 atomically renders a reduced application project around those resources.
 It stamps the product name, reverse-domain identifier, semantic version,
 optional Windows icon, transport/resource/launcher contracts, toolchain
-minima, template integrity, and explicit launch configuration."><meta property="og:description" content="generate_tauri_app() validates one dependency-complete Windows desktop
+minima, template integrity, packaged/development launch configuration, and
+current-user NSIS packaging."><meta property="og:description" content="generate_tauri_app() validates one dependency-complete Windows desktop
 resource bundle, verifies a versioned rpackit Tauri source template, and
 atomically renders a reduced application project around those resources.
 It stamps the product name, reverse-domain identifier, semantic version,
 optional Windows icon, transport/resource/launcher contracts, toolchain
-minima, template integrity, and explicit launch configuration."></head><body>
+minima, template integrity, packaged/development launch configuration, and
+current-user NSIS packaging."></head><body>
     <a href="#main" class="visually-hidden-focusable">Skip to contents</a>
 
 
@@ -50,7 +52,8 @@ resource bundle, verifies a versioned rpackit Tauri source template, and
 atomically renders a reduced application project around those resources.
 It stamps the product name, reverse-domain identifier, semantic version,
 optional Windows icon, transport/resource/launcher contracts, toolchain
-minima, template integrity, and explicit launch configuration.</p>
+minima, template integrity, packaged/development launch configuration, and
+current-user NSIS packaging.</p>
     </div>
 
     <div class="section level2">
@@ -129,8 +132,8 @@ before generation.</p></dd>
 its pinned SHA-256, and removed after generation. It is not retained in a
 package cache. A trusted local template directory can be supplied for
 offline development; its selected source tree digest is recorded instead.</p>
-<p>This function generates source. It does not compile Rust, create an
-installer, or claim clean-machine verification.</p>
+<p>This function generates packaging-ready source. It does not compile Rust,
+build or sign an installer, or claim clean-machine verification.</p>
     </div>
 
   </main><aside class="col-md-3"><nav id="toc" aria-label="Table of contents"><h2>On this page</h2>

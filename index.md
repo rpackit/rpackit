@@ -183,7 +183,7 @@ validation reparses the copied app and requires its packages and
 constraints to match the manifest; `verify_runtime = TRUE` checks those
 versions again inside portable R. Existing output is never overwritten.
 
-## Native Tauri source
+## Native Windows project
 
 Once a Windows bundle is dependency-complete and constraint-verified,
 render the maintained native project around it:
@@ -219,12 +219,12 @@ GitHub Actions runner rather than keeping duplicate runtime trees in a
 synced source checkout. Cargo compilation and runtime downloads remain
 remote in the maintained acceptance workflow.
 
-This milestone generates and validates native source; it does not yet
-produce a supported installer. `bundle.active` remains false, metadata
-records `installer = "not-built"` and `clean_machine_verified = false`,
-and validation refuses to reinterpret either state as a release. The
-next gate packages the generated hello-shiny project and verifies it on
-a clean Windows machine without system R.
+Generated projects are ready for `cargo tauri build`, with current-user
+NSIS packaging enabled and installed-mode resource discovery built in.
+Generation still records `clean_machine_verified = false`: only an
+actual remote install-and-run gate may make that release claim.
+Executables and installers belong in GitHub Releases, not in this source
+checkout.
 
 The lifecycle manager starts the bundled `Rscript`, waits for a
 post-bind `listening` event, verifies a real authenticated HTTP
@@ -287,14 +287,14 @@ owner](https://github.com/rpackit/rpackit-tauri) passes the complete
 development and reviewed fixed-WebView2 transport matrix, the real
 portable-R/hello-shiny launcher lifecycle, and deterministic
 WebView/window/profile cleanup. The source generator pins
-[`windows-template-v1.0.0`](https://github.com/rpackit/rpackit-tauri/releases/tag/windows-template-v1.0.0)
-and rejects unknown contract or template versions. This evidence does
-not turn the generated source into a supported installer; native
-executable packaging, clean-machine verification, static-web builders,
-and server builders remain later milestones. The threat model excludes
-malicious same-user processes, administrator or debugger access, and
-untrusted app/package code running inside the credential-bearing R
-process.
+[`windows-template-v1.1.0`](https://github.com/rpackit/rpackit-tauri/releases/tag/windows-template-v1.1.0)
+and rejects unknown contract or template versions. The hello-shiny
+release workflow separately builds, installs, starts, stops, and
+uninstalls the generated NSIS application before publishing its
+pre-release artifact. Static-web builders and server builders remain
+later milestones. The threat model excludes malicious same-user
+processes, administrator or debugger access, and untrusted app/package
+code running inside the credential-bearing R process.
 
 If process termination succeeds but private lifecycle files cannot be
 removed, the error retains the managed process handle so

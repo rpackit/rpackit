@@ -224,7 +224,7 @@ the copied app and rejects manifest package or constraint drift. Set
 execute bundled R and recheck installed package versions.</p>
 </div>
 <div class="section level2">
-<h2 id="generate-native-source">Generate native source<a class="anchor" aria-label="anchor" href="#generate-native-source"></a>
+<h2 id="generate-a-native-windows-project">Generate a native Windows project<a class="anchor" aria-label="anchor" href="#generate-a-native-windows-project"></a>
 </h2>
 <p>Generation requires a dependency-complete Windows bundle. Run it in a
 build workspace or Windows GitHub Actions runner so the copied portable
@@ -246,12 +246,12 @@ only to a temporary file, and removed after use. The generated project
 excludes the transport acceptance spike and testkit. Its
 <code>rpackit-native.json</code> binds the application identity, icon
 and resource-manifest digests, template integrity, contract versions,
-reviewed tool/runtime minima, and explicit launch mode.</p>
-<p>This step generates source only. It leaves Tauri installer bundling
-disabled and records that clean-machine verification has not happened.
-Heavy Rust compilation belongs in the maintained Windows workflow; do
-not commit Cargo <code>target/</code>, executables, installers, or
-copied portable runtime archives.</p>
+reviewed tool/runtime minima, and packaged/development launch modes.</p>
+<p>This step generates packaging-ready source with a current-user NSIS
+target, but records that clean-machine verification has not happened.
+Heavy Rust compilation and install/run verification belong in the
+maintained Windows workflow; do not commit Cargo <code>target/</code>,
+executables, installers, or copied portable runtime archives.</p>
 </div>
 <div class="section level2">
 <h2 id="run-and-stop-the-prepared-app">Run and stop the prepared app<a class="anchor" aria-label="anchor" href="#run-and-stop-the-prepared-app"></a>
@@ -276,9 +276,10 @@ browser and do not put the secret in the URL. Always stop the process,
 including on errors; the <code><a href="https://rdrr.io/r/base/on.exit.html" class="external-link">on.exit()</a></code> pattern above supplies
 that cleanup path.</p>
 <p><code><a href="../reference/prepare_desktop.html">prepare_desktop()</a></code> creates the portable resource contract
-and <code><a href="../reference/generate_tauri_app.html">generate_tauri_app()</a></code> renders maintained native source
-around it. Neither function claims a supported Tauri installer. The <a href="https://github.com/rpackit/roadmap" class="external-link">rpackit roadmap</a> records
-the native transport and release gates separately from this R
+and <code><a href="../reference/generate_tauri_app.html">generate_tauri_app()</a></code> renders a packaging-ready native
+project around it. Generation alone does not claim a verified installer.
+The <a href="https://github.com/rpackit/roadmap" class="external-link">rpackit roadmap</a>
+records the native transport and release gates separately from this R
 workflow.</p>
 </div>
   </main><aside class="col-md-3"><nav id="toc" aria-label="Table of contents"><h2>On this page</h2>
