@@ -1,0 +1,9 @@
+[package]
+name = "rpackit-windows-shell"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+rpackit-transport = { path = "../../crates/transport" }
+rpackit-windows-lifecycle = { path = "../../crates/windows-lifecycle" }
+rpackit-windows-webview = { path = "../../crates/windows-webview" }

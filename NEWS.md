@@ -1,5 +1,16 @@
 # rpackit (development version)
 
+- Added `generate_tauri_app()` and `validate_tauri_project()` for atomic,
+  application-specific Windows Tauri source generation. The generator
+  temporarily downloads the 1.0.0 maintained source template, verifies its
+  pinned SHA-256, copies only the native shell and six required runtime crates,
+  stamps product/identifier/version/icon configuration, embeds one validated
+  dependency-complete bundle, and records template integrity, contract/tool
+  versions, resource and icon digests, and explicit launch/packaging state in
+  `rpackit-native.json`. Unknown templates/contracts, unsafe or oversized ZIPs,
+  non-Windows or incomplete bundles, identity drift, digest drift, and
+  overwrites fail closed. This milestone generates source and explicitly does
+  not claim an installer or clean-machine verification.
 - `rlang` is now an explicit runtime dependency because rpackit's
   `cli::cli_abort()` error paths require it. Minimal installations no longer
   lose the original diagnostic while trying to construct a structured error.

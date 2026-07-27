@@ -30,6 +30,10 @@ reference:
   - resolve_portable_runtime
   - prepare_desktop
   - validate_desktop_bundle
+- title: Generate native application source
+  contents:
+  - generate_tauri_app
+  - validate_tauri_project
 - title: Run desktop applications
   contents:
   - start_desktop_app

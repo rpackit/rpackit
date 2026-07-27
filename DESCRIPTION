@@ -9,7 +9,8 @@ Description: Inspects R application projects and the local build environment
     from parsed R source, package metadata, and lockfiles, validates exact
     dependency sources and version constraints, resolves verified portable R
     runtimes, prepares atomic desktop resource bundles, manages loopback Shiny
-    processes, and recommends portable desktop, static web, and dynamic server
+    processes, generates versioned application-specific Tauri source
+    projects, and recommends portable desktop, static web, and dynamic server
     targets.
 License: MIT + file LICENSE
 URL: https://rpackit.github.io/rpackit/,

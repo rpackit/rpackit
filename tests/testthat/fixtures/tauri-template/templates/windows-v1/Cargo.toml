@@ -1,0 +1,11 @@
+[workspace]
+members = [
+  "src-tauri",
+  "crates/launcher-protocol",
+  "crates/resource-bundle",
+  "crates/transport",
+  "crates/windows-launcher",
+  "crates/windows-lifecycle",
+  "crates/windows-webview",
+]
+resolver = "2"

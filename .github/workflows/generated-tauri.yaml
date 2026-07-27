@@ -1,0 +1,225 @@
+name: Generated Tauri project gate
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - ".github/workflows/generated-tauri.yaml"
+      - "DESCRIPTION"
+      - "NAMESPACE"
+      - "R/desktop-resources.R"
+      - "R/portable-runtime.R"
+      - "R/tauri-project.R"
+      - "tests/testthat/test-tauri-project.R"
+  pull_request:
+    paths:
+      - ".github/workflows/generated-tauri.yaml"
+      - "DESCRIPTION"
+      - "NAMESPACE"
+      - "R/desktop-resources.R"
+      - "R/portable-runtime.R"
+      - "R/tauri-project.R"
+      - "tests/testthat/test-tauri-project.R"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: generated-tauri-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  RPACKIT_RUNTIME_VERSION: "4.6.1"
+  RPACKIT_EXAMPLES_SHA: "385807ab418ece8875deb321db4878594882868e"
+  RPACKIT_TEMPLATE_SHA256: "44485072634503e4391932d54899ddc1623d69e5880de4d5a8a59f0e02139128"
+
+jobs:
+  generated-project:
+    runs-on: windows-latest
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/checkout@v7
+        with:
+          repository: rpackit/rpackit-examples
+          ref: ${{ env.RPACKIT_EXAMPLES_SHA }}
+          path: gate-inputs/examples
+
+      - uses: r-lib/actions/setup-r@v2
+        with:
+          r-version: release
+          use-public-rspm: true
+
+      - uses: r-lib/actions/setup-r-dependencies@v2
+        with:
+          needs: check
+
+      - uses: dtolnay/rust-toolchain@2c7215f132e9ebf062739d9130488b56d53c060c
+        with:
+          toolchain: 1.97.1
+
+      - name: Configure runner-scoped paths
+        shell: powershell
+        run: |
+          $root = Join-Path $env:RUNNER_TEMP (
+            "rpackit-generated-$env:GITHUB_RUN_ID-$env:GITHUB_RUN_ATTEMPT"
+          )
+          @(
+            "RPACKIT_GATE_ROOT=$root",
+            "RPACKIT_BUNDLE=$(Join-Path $root 'hello-shiny-bundle')",
+            "RPACKIT_GENERATED_PROJECT=$(Join-Path $root 'hello-shiny-project')",
+            "RPACKIT_RUNTIME_CACHE=$(Join-Path $root 'runtime-cache')",
+            "RPACKIT_SESSIONS=$(Join-Path $root 'sessions')",
+            "RPACKIT_PROFILES=$(Join-Path $root 'profiles')",
+            "RPACKIT_EVIDENCE=$(Join-Path $root 'generated-project-evidence.json')",
+            "CARGO_TARGET_DIR=$(Join-Path $root 'cargo-target')"
+          ) | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+
+      - name: Install the current rpackit source
+        shell: powershell
+        run: |
+          R CMD INSTALL .
+          if ($LASTEXITCODE -ne 0) {
+            throw "Current rpackit source installation failed."
+          }
+
+      - name: Prepare and generate hello-shiny
+        shell: Rscript {0}
+        run: |
+          bundle <- rpackit::prepare_desktop(
+            "gate-inputs/examples/hello-shiny",
+            output_dir = Sys.getenv("RPACKIT_BUNDLE"),
+            r_version = Sys.getenv("RPACKIT_RUNTIME_VERSION"),
+            cache_dir = Sys.getenv("RPACKIT_RUNTIME_CACHE"),
+            verify_runtime = TRUE,
+            quiet = TRUE
+          )
+          project <- rpackit::generate_tauri_app(
+            bundle$path,
+            output_dir = Sys.getenv("RPACKIT_GENERATED_PROJECT"),
+            product_name = "rpackit Hello Shiny",
+            identifier = "dev.rpackit.generated-hello-shiny",
+            version = "0.1.0",
+            verify_runtime = TRUE,
+            quiet = TRUE
+          )
+          validation <- rpackit::validate_tauri_project(
+            project$path,
+            verify_runtime = TRUE,
+            quiet = TRUE
+          )
+          stopifnot(
+            isTRUE(validation$valid),
+            identical(
+              validation$template_integrity,
+              Sys.getenv("RPACKIT_TEMPLATE_SHA256")
+            )
+          )
+
+      - name: Verify generated source boundary
+        shell: powershell
+        run: |
+          $metadata = Get-Content `
+            -LiteralPath (
+              Join-Path $env:RPACKIT_GENERATED_PROJECT `
+                "src-tauri\rpackit-native.json"
+            ) `
+            -Raw | ConvertFrom-Json
+          if (
+            $metadata.template.official -ne $true -or
+            $metadata.template.integrity.sha256 -ne $env:RPACKIT_TEMPLATE_SHA256 -or
+            $metadata.contracts.transport -ne "2" -or
+            $metadata.contracts.resource_bundle -ne "1" -or
+            $metadata.contracts.launcher -ne "2" -or
+            $metadata.packaging.installer -ne "not-built" -or
+            $metadata.requirements.clean_machine_verified -ne $false
+          ) {
+            throw "Generated native metadata failed its pinned boundary."
+          }
+          if (
+            Test-Path -LiteralPath (
+              Join-Path $env:RPACKIT_GENERATED_PROJECT `
+                "crates\transport-testkit"
+            )
+          ) {
+            throw "The generated project retained the transport testkit."
+          }
+
+      - name: Install pinned Tauri CLI
+        run: cargo install tauri-cli --version 2.11.4 --locked
+
+      - name: Compile the generated application source
+        shell: powershell
+        run: |
+          Set-Location (
+            Join-Path $env:RPACKIT_GENERATED_PROJECT "src-tauri"
+          )
+          cargo tauri build --no-bundle
+
+      - name: Run generated hello-shiny through the native owner
+        shell: powershell
+        run: |
+          $null = New-Item -ItemType Directory -Path $env:RPACKIT_SESSIONS
+          $null = New-Item -ItemType Directory -Path $env:RPACKIT_PROFILES
+          $shell = Join-Path `
+            $env:CARGO_TARGET_DIR `
+            "release\rpackit-windows-shell.exe"
+          & $shell `
+            --bundle (
+              Join-Path $env:RPACKIT_GENERATED_PROJECT "src-tauri"
+            ) `
+            --session-parent $env:RPACKIT_SESSIONS `
+            --profile-parent $env:RPACKIT_PROFILES `
+            --evidence $env:RPACKIT_EVIDENCE `
+            --close-after-ready
+          if ($LASTEXITCODE -ne 0) {
+            throw "The generated native application source failed to run."
+          }
+          $report = Get-Content `
+            -LiteralPath $env:RPACKIT_EVIDENCE `
+            -Raw | ConvertFrom-Json
+          foreach ($gate in @(
+            "success",
+            "graceful_runtime_shutdown",
+            "proxy_stopped",
+            "job_empty",
+            "private_session_removed",
+            "session_cookie_absent",
+            "browsing_data_clear_queued",
+            "window_destroyed",
+            "profile_removed"
+          )) {
+            if ($report.$gate -ne $true) {
+              throw "Generated-project runtime gate failed: $gate."
+            }
+          }
+
+      - name: Upload secret-free generated-project evidence
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: generated-tauri-project-evidence
+          path: ${{ runner.temp }}/rpackit-generated-${{ github.run_id }}-${{ github.run_attempt }}/generated-project-evidence.json
+          if-no-files-found: warn
+          retention-days: 1
+
+      - name: Remove runner-scoped runtime and build storage
+        if: always()
+        shell: powershell
+        run: |
+          $runner = [System.IO.Path]::GetFullPath($env:RUNNER_TEMP)
+          $root = [System.IO.Path]::GetFullPath($env:RPACKIT_GATE_ROOT)
+          if (
+            -not $root.StartsWith(
+              $runner,
+              [System.StringComparison]::OrdinalIgnoreCase
+            ) -or
+            $root -eq $runner
+          ) {
+            throw "Refusing to remove an unsafe runner path."
+          }
+          if (Test-Path -LiteralPath $root) {
+            Remove-Item -LiteralPath $root -Recurse -Force
+          }
