@@ -32,7 +32,7 @@ concurrency:
 env:
   RPACKIT_RUNTIME_VERSION: "4.6.1"
   RPACKIT_EXAMPLES_SHA: "385807ab418ece8875deb321db4878594882868e"
-  RPACKIT_TEMPLATE_SHA256: "44485072634503e4391932d54899ddc1623d69e5880de4d5a8a59f0e02139128"
+  RPACKIT_TEMPLATE_SHA256: "2f4e03c71a2a5c3dac01309259279827988ca028b0776138b3c0d3d18c7a6246"
 
 jobs:
   generated-project:
@@ -133,7 +133,8 @@ jobs:
             $metadata.contracts.transport -ne "2" -or
             $metadata.contracts.resource_bundle -ne "1" -or
             $metadata.contracts.launcher -ne "2" -or
-            $metadata.packaging.installer -ne "not-built" -or
+            $metadata.packaging.installer -ne "nsis-configured" -or
+            $metadata.packaging.tauri_bundle_active -ne $true -or
             $metadata.requirements.clean_machine_verified -ne $false
           ) {
             throw "Generated native metadata failed its pinned boundary."

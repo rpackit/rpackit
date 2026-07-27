@@ -1,12 +1,12 @@
 .tauri_official_template <- list(
   name = "rpackit-windows",
-  version = "1.0.0",
+  version = "1.1.0",
   source = paste0(
     "https://github.com/rpackit/rpackit-tauri/releases/download/",
-    "windows-template-v1.0.0/",
-    "rpackit-windows-template-v1.0.0.zip"
+    "windows-template-v1.1.0/",
+    "rpackit-windows-template-v1.1.0.zip"
   ),
-  sha256 = "44485072634503e4391932d54899ddc1623d69e5880de4d5a8a59f0e02139128"
+  sha256 = "2f4e03c71a2a5c3dac01309259279827988ca028b0776138b3c0d3d18c7a6246"
 )
 
 .tauri_expected_crates <- c(
@@ -110,9 +110,12 @@
     )
   if (!isTRUE(valid)) {
     cli::cli_abort(
-      paste0(
-        "The Tauri source template does not match supported template 1.0.0, ",
-        "transport 2, resource schema 1, and launcher protocol 2."
+      sprintf(
+        paste0(
+          "The Tauri source template does not match supported template %s, ",
+          "transport 2, resource schema 1, and launcher protocol 2."
+        ),
+        .tauri_official_template$version
       ),
       class = "rpackit_tauri_template_contract_error"
     )
@@ -603,19 +606,22 @@
     "",
     "```powershell",
     "Set-Location src-tauri",
-    "cargo tauri build --no-bundle",
+    "cargo tauri build",
     "```",
     "",
-    "The current milestone builds the application-specific native source and",
-    "executable without an installer. Clean-machine installer verification is",
-    "the next release gate; this project must not yet be presented as a",
-    "supported installer.",
+    "This creates a current-user NSIS setup executable under",
+    "`target/release/bundle/nsis`. Generation configures packaging but does",
+    "not itself claim that an installer was built, signed, or clean-machine",
+    "verified.",
+    "",
+    "An installed application needs no path arguments: it resolves the bundled",
+    "resources and private per-user session/profile parents automatically.",
     "",
     "## Development launch",
     "",
-    "The shell currently takes explicit, absolute resource/session/profile",
-    "paths. Create the two parent directories below a current-account-owned",
-    "local directory, then run from the project root:",
+    "For development, the shell also accepts explicit absolute",
+    "resource/session/profile paths. Create the two parent directories below",
+    "a current-account-owned local directory, then run from the project root:",
     "",
     "```powershell",
     "$work = Join-Path $env:LOCALAPPDATA 'rpackit-generated-development'",
@@ -676,7 +682,7 @@
       )
     ),
     launch = list(
-      mode = "explicit-resource-bundle",
+      mode = "packaged-or-explicit-resource-bundle",
       development_bundle = ".",
       packaged_bundle = "$RESOURCE",
       arguments = as.list(c(
@@ -686,8 +692,9 @@
       ))
     ),
     packaging = list(
-      installer = "not-built",
-      tauri_bundle_active = FALSE
+      installer = "nsis-configured",
+      tauri_bundle_active = TRUE,
+      install_mode = "currentUser"
     ),
     generated_by = list(
       package = "rpackit",
@@ -747,11 +754,13 @@
   config$productName <- product_name
   config$version <- version
   config$identifier <- identifier
-  config$bundle$active <- FALSE
+  config$bundle$active <- TRUE
+  config$bundle$targets <- list("nsis")
   config$bundle$icon <- list("icons/icon.ico")
   config$bundle$resources <- list("resources/" = "resources/")
   config$bundle$windows$minimumWebview2Version <-
     descriptor$requirements$webview2
+  config$bundle$windows$nsis <- list(installMode = "currentUser")
   .desktop_write_json(config, config_path)
   icons <- file.path(app, "icons")
   dir.create(icons)
@@ -854,7 +863,8 @@ validate_tauri_project <- function(project_dir, verify_runtime = FALSE,
     is.list(config) &&
     is.list(config$bundle) &&
     is.list(config$bundle$resources) &&
-    is.list(config$bundle$windows)
+    is.list(config$bundle$windows) &&
+    is.list(config$bundle$windows$nsis)
   if (!isTRUE(valid_structure)) {
     cli::cli_abort(
       "The generated project contains malformed native metadata.",
@@ -901,7 +911,8 @@ validate_tauri_project <- function(project_dir, verify_runtime = FALSE,
   if (!identical(config$productName, product_name) ||
       !identical(config$identifier, identifier) ||
       !identical(config$version, version) ||
-      !identical(config$bundle$active, FALSE) ||
+      !identical(config$bundle$active, TRUE) ||
+      !identical(.tauri_vector(config$bundle$targets), "nsis") ||
       !identical(.tauri_vector(config$bundle$icon), "icons/icon.ico") ||
       !identical(
         config$bundle$resources[["resources/"]],
@@ -910,6 +921,10 @@ validate_tauri_project <- function(project_dir, verify_runtime = FALSE,
       !identical(
         config$bundle$windows$minimumWebview2Version,
         .tauri_expected_requirements$webview2
+      ) ||
+      !identical(
+        config$bundle$windows$nsis$installMode,
+        "currentUser"
       )) {
     cli::cli_abort(
       "Tauri configuration disagrees with native application metadata.",
@@ -970,15 +985,19 @@ validate_tauri_project <- function(project_dir, verify_runtime = FALSE,
       ) ||
       !identical(metadata$resources$path, "resources") ||
       !identical(metadata$resources$manifest, "resources/rpackit.json") ||
-      !identical(metadata$launch$mode, "explicit-resource-bundle") ||
+      !identical(
+        metadata$launch$mode,
+        "packaged-or-explicit-resource-bundle"
+      ) ||
       !identical(metadata$launch$development_bundle, ".") ||
       !identical(metadata$launch$packaged_bundle, "$RESOURCE") ||
       !identical(
         .tauri_vector(metadata$launch$arguments),
         c("--bundle", "--session-parent", "--profile-parent")
       ) ||
-      !identical(metadata$packaging$installer, "not-built") ||
-      !identical(metadata$packaging$tauri_bundle_active, FALSE)) {
+      !identical(metadata$packaging$installer, "nsis-configured") ||
+      !identical(metadata$packaging$tauri_bundle_active, TRUE) ||
+      !identical(metadata$packaging$install_mode, "currentUser")) {
     cli::cli_abort(
       "Generated assets or launch metadata failed validation.",
       class = "rpackit_tauri_project_error"
@@ -1028,15 +1047,16 @@ validate_tauri_project <- function(project_dir, verify_runtime = FALSE,
 #' atomically renders a reduced application project around those resources.
 #' It stamps the product name, reverse-domain identifier, semantic version,
 #' optional Windows icon, transport/resource/launcher contracts, toolchain
-#' minima, template integrity, and explicit launch configuration.
+#' minima, template integrity, packaged/development launch configuration, and
+#' current-user NSIS packaging.
 #'
 #' The official source ZIP is downloaded to a temporary file, checked against
 #' its pinned SHA-256, and removed after generation. It is not retained in a
 #' package cache. A trusted local template directory can be supplied for
 #' offline development; its selected source tree digest is recorded instead.
 #'
-#' This function generates source. It does not compile Rust, create an
-#' installer, or claim clean-machine verification.
+#' This function generates packaging-ready source. It does not compile Rust,
+#' build or sign an installer, or claim clean-machine verification.
 #'
 #' @param bundle_dir Prepared Windows bundle from [prepare_desktop()].
 #' @param output_dir New generated-project directory. By default, a sibling
@@ -1177,7 +1197,7 @@ print.rpackit_tauri_project <- function(x, ...) {
   cli::cli_li("Template: {x$template_version}")
   cli::cli_li("Path: {.path {x$path}}")
   cli::cli_alert_info(
-    "Source generated; native executable and installer were not built."
+    "Packaging-ready source generated; run cargo tauri build on Windows."
   )
   invisible(x)
 }

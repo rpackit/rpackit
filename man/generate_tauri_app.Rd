@@ -53,7 +53,8 @@ resource bundle, verifies a versioned rpackit Tauri source template, and
 atomically renders a reduced application project around those resources.
 It stamps the product name, reverse-domain identifier, semantic version,
 optional Windows icon, transport/resource/launcher contracts, toolchain
-minima, template integrity, and explicit launch configuration.
+minima, template integrity, packaged/development launch configuration, and
+current-user NSIS packaging.
 }
 \details{
 The official source ZIP is downloaded to a temporary file, checked against
@@ -61,6 +62,6 @@ its pinned SHA-256, and removed after generation. It is not retained in a
 package cache. A trusted local template directory can be supplied for
 offline development; its selected source tree digest is recorded instead.
 
-This function generates source. It does not compile Rust, create an
-installer, or claim clean-machine verification.
+This function generates packaging-ready source. It does not compile Rust,
+build or sign an installer, or claim clean-machine verification.
 }

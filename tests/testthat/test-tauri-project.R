@@ -76,7 +76,9 @@ test_that("application-specific Tauri projects generate and validate", {
   expect_identical(config$productName, "Hello Native")
   expect_identical(config$identifier, "org.example.hello-native")
   expect_identical(config$version, "1.2.3")
-  expect_false(config$bundle$active)
+  expect_true(config$bundle$active)
+  expect_identical(unlist(config$bundle$targets), "nsis")
+  expect_identical(config$bundle$windows$nsis$installMode, "currentUser")
   expect_identical(
     config$bundle$resources[["resources/"]],
     "resources/"
@@ -89,12 +91,15 @@ test_that("application-specific Tauri projects generate and validate", {
   expect_identical(metadata$contracts$transport, "2")
   expect_identical(metadata$contracts$resource_bundle, "1")
   expect_identical(metadata$contracts$launcher, "2")
-  expect_identical(metadata$template$version, "1.0.0")
+  expect_identical(metadata$template$version, "1.1.0")
   expect_false(metadata$template$official)
   expect_identical(metadata$template$integrity$type, "tree-sha256")
   expect_match(metadata$template$integrity$sha256, "^[a-f0-9]{64}$")
-  expect_identical(metadata$launch$mode, "explicit-resource-bundle")
-  expect_identical(metadata$packaging$installer, "not-built")
+  expect_identical(
+    metadata$launch$mode,
+    "packaged-or-explicit-resource-bundle"
+  )
+  expect_identical(metadata$packaging$installer, "nsis-configured")
   expect_false(metadata$requirements$clean_machine_verified)
 
   validation <- validate_tauri_project(output, quiet = TRUE)
