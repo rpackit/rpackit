@@ -26,6 +26,7 @@ Imports:
     openssl,
     processx (>= 3.5.0),
     ps,
+    rlang (>= 1.0.2),
     stats,
     zip (>= 2.3.3)
 Suggests:
