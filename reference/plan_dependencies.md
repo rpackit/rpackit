@@ -75,7 +75,7 @@ writeLines(
 plan_dependencies(app)
 #> 
 #> ── rpackit dependency plan ─────────────────────────────────────────────────────
-#> Path: /tmp/RtmpX51LBP/rpackit-dependencies-188a446c0250
+#> Path: /tmp/RtmpMTGnDH/rpackit-dependencies-1a0b38a672e0
 #> 2 packages; 2 direct; 0 locked
 #>   package version constraint roles direct required locked lock_source
 #>  jsonlite    <NA>       <NA>  <NA>   TRUE     TRUE  FALSE        <NA>
