@@ -14,7 +14,10 @@ installing packages:
     creates portable desktop resources atomically.
 5.  [`validate_desktop_bundle()`](https://rpackit.github.io/rpackit/reference/validate_desktop_bundle.md)
     verifies those resources without running the application.
-6.  [`start_desktop_app()`](https://rpackit.github.io/rpackit/reference/start_desktop_app.md)
+6.  [`generate_tauri_app()`](https://rpackit.github.io/rpackit/reference/generate_tauri_app.md)
+    renders application-specific native source from a checksum-pinned
+    maintained template.
+7.  [`start_desktop_app()`](https://rpackit.github.io/rpackit/reference/start_desktop_app.md)
     and
     [`stop_desktop_app()`](https://rpackit.github.io/rpackit/reference/stop_desktop_app.md)
     provide a managed, authenticated development lifecycle.
@@ -170,6 +173,40 @@ rejects manifest package or constraint drift. Set
 `verify_runtime = TRUE` when you also want validation to execute bundled
 R and recheck installed package versions.
 
+## Generate native source
+
+Generation requires a dependency-complete Windows bundle. Run it in a
+build workspace or Windows GitHub Actions runner so the copied portable
+R tree does not become a second long-lived runtime inside a synced
+source checkout:
+
+``` r
+
+project <- generate_tauri_app(
+  bundle$path,
+  identifier = "com.example.hello-rpackit",
+  version = "0.1.0"
+)
+
+validate_tauri_project(
+  project$path,
+  verify_runtime = TRUE
+)
+```
+
+The official template archive is small, checksum-pinned, downloaded only
+to a temporary file, and removed after use. The generated project
+excludes the transport acceptance spike and testkit. Its
+`rpackit-native.json` binds the application identity, icon and
+resource-manifest digests, template integrity, contract versions,
+reviewed tool/runtime minima, and explicit launch mode.
+
+This step generates source only. It leaves Tauri installer bundling
+disabled and records that clean-machine verification has not happened.
+Heavy Rust compilation belongs in the maintained Windows workflow; do
+not commit Cargo `target/`, executables, installers, or copied portable
+runtime archives.
+
 ## Run and stop the prepared app
 
 The R-level lifecycle is intended for trusted development and native
@@ -199,7 +236,9 @@ the process, including on errors; the
 supplies that cleanup path.
 
 [`prepare_desktop()`](https://rpackit.github.io/rpackit/reference/prepare_desktop.md)
-currently creates the portable resource contract. It does not yet
-generate a supported Tauri installer. The [rpackit
+creates the portable resource contract and
+[`generate_tauri_app()`](https://rpackit.github.io/rpackit/reference/generate_tauri_app.md)
+renders maintained native source around it. Neither function claims a
+supported Tauri installer. The [rpackit
 roadmap](https://github.com/rpackit/roadmap) records the native
 transport and release gates separately from this R workflow.

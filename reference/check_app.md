@@ -45,7 +45,7 @@ writeLines(
 check_app(app)
 #> 
 #> ── rpackit app check ───────────────────────────────────────────────────────────
-#> Path: /tmp/RtmpGJQMA7/shiny-app-195d421f2f03
+#> Path: /tmp/RtmpD9Bq7K/shiny-app-1947532d4fe8
 #> Detected app type: shiny-single-file
 #> 
 #> ── Packages ──

@@ -21,6 +21,13 @@
 - [`validate_desktop_bundle()`](https://rpackit.github.io/rpackit/reference/validate_desktop_bundle.md)
   : Validate a prepared desktop resource bundle
 
+## Generate native application source
+
+- [`generate_tauri_app()`](https://rpackit.github.io/rpackit/reference/generate_tauri_app.md)
+  : Generate an application-specific Tauri source project
+- [`validate_tauri_project()`](https://rpackit.github.io/rpackit/reference/validate_tauri_project.md)
+  : Validate a generated Tauri source project
+
 ## Run desktop applications
 
 - [`start_desktop_app()`](https://rpackit.github.io/rpackit/reference/start_desktop_app.md)

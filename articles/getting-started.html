@@ -79,6 +79,9 @@ atomically.</li>
 <code><a href="../reference/validate_desktop_bundle.html">validate_desktop_bundle()</a></code> verifies those resources
 without running the application.</li>
 <li>
+<code><a href="../reference/generate_tauri_app.html">generate_tauri_app()</a></code> renders application-specific
+native source from a checksum-pinned maintained template.</li>
+<li>
 <code><a href="../reference/start_desktop_app.html">start_desktop_app()</a></code> and <code><a href="../reference/stop_desktop_app.html">stop_desktop_app()</a></code>
 provide a managed, authenticated development lifecycle.</li>
 </ol>
@@ -221,11 +224,41 @@ the copied app and rejects manifest package or constraint drift. Set
 execute bundled R and recheck installed package versions.</p>
 </div>
 <div class="section level2">
+<h2 id="generate-native-source">Generate native source<a class="anchor" aria-label="anchor" href="#generate-native-source"></a>
+</h2>
+<p>Generation requires a dependency-complete Windows bundle. Run it in a
+build workspace or Windows GitHub Actions runner so the copied portable
+R tree does not become a second long-lived runtime inside a synced
+source checkout:</p>
+<div class="sourceCode" id="cb6"><pre class="downlit sourceCode r">
+<code class="sourceCode R"><span><span class="va">project</span> <span class="op">&lt;-</span> <span class="fu"><a href="../reference/generate_tauri_app.html">generate_tauri_app</a></span><span class="op">(</span></span>
+<span>  <span class="va">bundle</span><span class="op">$</span><span class="va">path</span>,</span>
+<span>  identifier <span class="op">=</span> <span class="st">"com.example.hello-rpackit"</span>,</span>
+<span>  version <span class="op">=</span> <span class="st">"0.1.0"</span></span>
+<span><span class="op">)</span></span>
+<span></span>
+<span><span class="fu"><a href="../reference/validate_tauri_project.html">validate_tauri_project</a></span><span class="op">(</span></span>
+<span>  <span class="va">project</span><span class="op">$</span><span class="va">path</span>,</span>
+<span>  verify_runtime <span class="op">=</span> <span class="cn">TRUE</span></span>
+<span><span class="op">)</span></span></code></pre></div>
+<p>The official template archive is small, checksum-pinned, downloaded
+only to a temporary file, and removed after use. The generated project
+excludes the transport acceptance spike and testkit. Its
+<code>rpackit-native.json</code> binds the application identity, icon
+and resource-manifest digests, template integrity, contract versions,
+reviewed tool/runtime minima, and explicit launch mode.</p>
+<p>This step generates source only. It leaves Tauri installer bundling
+disabled and records that clean-machine verification has not happened.
+Heavy Rust compilation belongs in the maintained Windows workflow; do
+not commit Cargo <code>target/</code>, executables, installers, or
+copied portable runtime archives.</p>
+</div>
+<div class="section level2">
 <h2 id="run-and-stop-the-prepared-app">Run and stop the prepared app<a class="anchor" aria-label="anchor" href="#run-and-stop-the-prepared-app"></a>
 </h2>
 <p>The R-level lifecycle is intended for trusted development and native
 integration testing:</p>
-<div class="sourceCode" id="cb6"><pre class="downlit sourceCode r">
+<div class="sourceCode" id="cb7"><pre class="downlit sourceCode r">
 <code class="sourceCode R"><span><span class="va">process</span> <span class="op">&lt;-</span> <span class="fu"><a href="../reference/start_desktop_app.html">start_desktop_app</a></span><span class="op">(</span><span class="va">bundle</span><span class="op">$</span><span class="va">path</span><span class="op">)</span></span>
 <span><span class="fu"><a href="https://rdrr.io/r/base/on.exit.html" class="external-link">on.exit</a></span><span class="op">(</span><span class="fu"><a href="../reference/stop_desktop_app.html">stop_desktop_app</a></span><span class="op">(</span><span class="va">process</span>, quiet <span class="op">=</span> <span class="cn">TRUE</span><span class="op">)</span>, add <span class="op">=</span> <span class="cn">TRUE</span><span class="op">)</span></span>
 <span></span>
@@ -242,10 +275,10 @@ token-free URL from <code><a href="../reference/desktop_app_status.html">desktop
 browser and do not put the secret in the URL. Always stop the process,
 including on errors; the <code><a href="https://rdrr.io/r/base/on.exit.html" class="external-link">on.exit()</a></code> pattern above supplies
 that cleanup path.</p>
-<p><code><a href="../reference/prepare_desktop.html">prepare_desktop()</a></code> currently creates the portable
-resource contract. It does not yet generate a supported Tauri installer.
-The <a href="https://github.com/rpackit/roadmap" class="external-link">rpackit roadmap</a>
-records the native transport and release gates separately from this R
+<p><code><a href="../reference/prepare_desktop.html">prepare_desktop()</a></code> creates the portable resource contract
+and <code><a href="../reference/generate_tauri_app.html">generate_tauri_app()</a></code> renders maintained native source
+around it. Neither function claims a supported Tauri installer. The <a href="https://github.com/rpackit/roadmap" class="external-link">rpackit roadmap</a> records
+the native transport and release gates separately from this R
 workflow.</p>
 </div>
   </main><aside class="col-md-3"><nav id="toc" aria-label="Table of contents"><h2>On this page</h2>

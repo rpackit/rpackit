@@ -11,6 +11,7 @@
 <url><loc>https://rpackit.github.io/rpackit/reference/desktop_app_launch_config.html</loc></url>
 <url><loc>https://rpackit.github.io/rpackit/reference/desktop_app_status.html</loc></url>
 <url><loc>https://rpackit.github.io/rpackit/reference/doctor.html</loc></url>
+<url><loc>https://rpackit.github.io/rpackit/reference/generate_tauri_app.html</loc></url>
 <url><loc>https://rpackit.github.io/rpackit/reference/index.html</loc></url>
 <url><loc>https://rpackit.github.io/rpackit/reference/plan_dependencies.html</loc></url>
 <url><loc>https://rpackit.github.io/rpackit/reference/prepare_desktop.html</loc></url>
@@ -18,5 +19,6 @@
 <url><loc>https://rpackit.github.io/rpackit/reference/start_desktop_app.html</loc></url>
 <url><loc>https://rpackit.github.io/rpackit/reference/stop_desktop_app.html</loc></url>
 <url><loc>https://rpackit.github.io/rpackit/reference/validate_desktop_bundle.html</loc></url>
+<url><loc>https://rpackit.github.io/rpackit/reference/validate_tauri_project.html</loc></url>
 </urlset>
 

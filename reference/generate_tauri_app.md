@@ -1,0 +1,87 @@
+# Generate an application-specific Tauri source project
+
+`generate_tauri_app()` validates one dependency-complete Windows desktop
+resource bundle, verifies a versioned rpackit Tauri source template, and
+atomically renders a reduced application project around those resources.
+It stamps the product name, reverse-domain identifier, semantic version,
+optional Windows icon, transport/resource/launcher contracts, toolchain
+minima, template integrity, and explicit launch configuration.
+
+## Usage
+
+``` r
+generate_tauri_app(
+  bundle_dir,
+  output_dir = NULL,
+  product_name = NULL,
+  identifier = NULL,
+  version = "0.1.0",
+  icon = NULL,
+  template_source = NULL,
+  template_sha256 = NULL,
+  verify_runtime = FALSE,
+  quiet = FALSE
+)
+```
+
+## Arguments
+
+- bundle_dir:
+
+  Prepared Windows bundle from
+  [`prepare_desktop()`](https://rpackit.github.io/rpackit/reference/prepare_desktop.md).
+
+- output_dir:
+
+  New generated-project directory. By default, a sibling directory named
+  from the application is used.
+
+- product_name:
+
+  Display name. Defaults to the bundle application name.
+
+- identifier:
+
+  Lowercase reverse-domain application identifier. Defaults to
+  `dev.rpackit.<application-slug>`.
+
+- version:
+
+  Semantic application version.
+
+- icon:
+
+  Optional existing Windows `.ico` file.
+
+- template_source:
+
+  `NULL` for the pinned official source ZIP, or a trusted local template
+  directory/custom HTTPS or local ZIP.
+
+- template_sha256:
+
+  Required lowercase SHA-256 for a custom ZIP. Optional for a local
+  directory; when supplied, it must match its selected template tree.
+
+- verify_runtime:
+
+  Execute the bundled `Rscript` and recheck packages before generation.
+
+- quiet:
+
+  Suppress the generation summary.
+
+## Value
+
+An `rpackit_tauri_project` object.
+
+## Details
+
+The official source ZIP is downloaded to a temporary file, checked
+against its pinned SHA-256, and removed after generation. It is not
+retained in a package cache. A trusted local template directory can be
+supplied for offline development; its selected source tree digest is
+recorded instead.
+
+This function generates source. It does not compile Rust, create an
+installer, or claim clean-machine verification.

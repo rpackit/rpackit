@@ -22,6 +22,11 @@ server bundle.
   atomic local runtime cache;
 - [`prepare_desktop()`](https://rpackit.github.io/rpackit/reference/prepare_desktop.md)
   builds atomic portable-R resource bundles;
+- [`generate_tauri_app()`](https://rpackit.github.io/rpackit/reference/generate_tauri_app.md)
+  and
+  [`validate_tauri_project()`](https://rpackit.github.io/rpackit/reference/validate_tauri_project.md)
+  render and inspect application-specific Windows Tauri source from a
+  checksum-pinned template;
 - [`start_desktop_app()`](https://rpackit.github.io/rpackit/reference/start_desktop_app.md),
   [`desktop_app_launch_config()`](https://rpackit.github.io/rpackit/reference/desktop_app_launch_config.md),
   [`desktop_app_status()`](https://rpackit.github.io/rpackit/reference/desktop_app_status.md),
@@ -178,6 +183,49 @@ validation reparses the copied app and requires its packages and
 constraints to match the manifest; `verify_runtime = TRUE` checks those
 versions again inside portable R. Existing output is never overwritten.
 
+## Native Tauri source
+
+Once a Windows bundle is dependency-complete and constraint-verified,
+render the maintained native project around it:
+
+``` r
+
+project <- generate_tauri_app(
+  bundle$path,
+  identifier = "com.example.my-app",
+  version = "0.1.0"
+)
+
+validate_tauri_project(project$path, verify_runtime = TRUE)
+```
+
+The application name defaults to the bundle name, and an `.ico` can be
+passed with `icon =`. Choose a stable reverse-domain identifier before
+distributing an application; changing it later changes the
+Windows/WebView application identity.
+
+Generation downloads the official `rpackit-tauri` template ZIP to a
+temporary file, verifies its pinned SHA-256, copies only the maintained
+shell and six required runtime crates, and deletes the downloaded
+template and extraction directory. It does not keep another template
+cache. The output records application metadata, template integrity,
+transport contract 2, resource schema 1, launcher protocol 2, exact
+Rust/Tauri/wry/WebView2 minima, icon and resource-manifest digests, and
+launch configuration in `src-tauri/rpackit-native.json`.
+
+The prepared portable R tree is intentionally copied into
+`src-tauri/resources`, so generate real projects in a build workspace or
+GitHub Actions runner rather than keeping duplicate runtime trees in a
+synced source checkout. Cargo compilation and runtime downloads remain
+remote in the maintained acceptance workflow.
+
+This milestone generates and validates native source; it does not yet
+produce a supported installer. `bundle.active` remains false, metadata
+records `installer = "not-built"` and `clean_machine_verified = false`,
+and validation refuses to reinterpret either state as a release. The
+next gate packages the generated hello-shiny project and verifies it on
+a clean Windows machine without system R.
+
 The lifecycle manager starts the bundled `Rscript`, waits for a
 post-bind `listening` event, verifies a real authenticated HTTP
 response, and requests graceful shutdown through a private control file.
@@ -234,21 +282,19 @@ protocol 2 directly and does not call or serialize the R-level
 [`desktop_app_launch_config()`](https://rpackit.github.io/rpackit/reference/desktop_app_launch_config.md)
 handoff.
 
-The pre-release [`rpackit-tauri` Windows
-spike](https://github.com/rpackit/rpackit-tauri) exercises this contract
-with a real WebView2 development runtime. It is not a generated
-application, supported installer, or release-ready transport. The
-current Windows development gate proves exact loopback routing wins
-across IPv4 wildcard, IPv6 v6-only wildcard, and IPv6 dual-stack
-wildcard contenders. The dual-stack contender is exercised against both
-exact families; wildcard bind success is not mistaken for interception.
-The reviewed fixed-runtime, crash-persistence, browser-escape,
-resource-abuse, and malformed-upstream matrices remain open. The threat
-model excludes malicious same-user processes, administrator or debugger
-access, and untrusted app/package code running inside the
-credential-bearing R process. Tauri project generation, native
-executable packaging, static-web builders, and server builders remain
-later milestones.
+The maintained [`rpackit-tauri` Windows
+owner](https://github.com/rpackit/rpackit-tauri) passes the complete
+development and reviewed fixed-WebView2 transport matrix, the real
+portable-R/hello-shiny launcher lifecycle, and deterministic
+WebView/window/profile cleanup. The source generator pins
+[`windows-template-v1.0.0`](https://github.com/rpackit/rpackit-tauri/releases/tag/windows-template-v1.0.0)
+and rejects unknown contract or template versions. This evidence does
+not turn the generated source into a supported installer; native
+executable packaging, clean-machine verification, static-web builders,
+and server builders remain later milestones. The threat model excludes
+malicious same-user processes, administrator or debugger access, and
+untrusted app/package code running inside the credential-bearing R
+process.
 
 If process termination succeeds but private lifecycle files cannot be
 removed, the error retains the managed process handle so
