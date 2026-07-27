@@ -2,6 +2,10 @@
 
 ## rpackit (development version)
 
+- `rlang` is now an explicit runtime dependency because rpackit’s
+  [`cli::cli_abort()`](https://cli.r-lib.org/reference/cli_abort.html)
+  error paths require it. Minimal installations no longer lose the
+  original diagnostic while trying to construct a structured error.
 - The default portable R registry now uses the concise `rpackit/runtime`
   repository, and Windows release artifacts are published from
   `rpackit/runtime-win`. Existing `portable-r-*` artifact and schema
