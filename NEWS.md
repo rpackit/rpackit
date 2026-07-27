@@ -3,6 +3,9 @@
 - `rlang` is now an explicit runtime dependency because rpackit's
   `cli::cli_abort()` error paths require it. Minimal installations no longer
   lose the original diagnostic while trying to construct a structured error.
+- Generated dependency installation and validation scripts now call the
+  exported `base::package_version()` API when enforcing the minimum secure
+  Shiny version.
 - The default portable R registry now uses the concise
   `rpackit/runtime` repository, and Windows release artifacts are published
   from `rpackit/runtime-win`. Existing `portable-r-*` artifact and schema names

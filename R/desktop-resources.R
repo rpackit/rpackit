@@ -850,7 +850,7 @@
       .desktop_r_literal(.desktop_minimum_secure_shiny_version)
     ),
     "if (utils::packageVersion('shiny', lib.loc = library_path) <",
-    "    utils::package_version(minimum_shiny_version)) {",
+    "    base::package_version(minimum_shiny_version)) {",
     "  stop(",
     "    'Bundled shiny must be version ',",
     "    minimum_shiny_version,",
@@ -1353,7 +1353,7 @@ prepare_desktop <- function(
             .desktop_r_literal(minimum_shiny_version)
           ),
           "if (utils::packageVersion('shiny', lib.loc = library_path) <",
-          "    utils::package_version(minimum_shiny_version)) {",
+          "    base::package_version(minimum_shiny_version)) {",
           "  stop(",
           "    'Bundled shiny must be version ',",
           "    minimum_shiny_version,",

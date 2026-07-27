@@ -247,6 +247,8 @@ test_that("dependency installation script verifies every DESCRIPTION version", {
     c(">=", "!=")
   )
   expect_match(script, "utils::compareVersion", fixed = TRUE)
+  expect_match(script, "base::package_version", fixed = TRUE)
+  expect_false(grepl("utils::package_version", script, fixed = TRUE))
   expect_match(
     script,
     "Bundled dependency version requirements are not satisfied",
