@@ -820,39 +820,58 @@ test_that("shutdown file-cleanup failures retain a retryable handle", {
 })
 
 test_that("readiness fails if the runtime process handle cannot be captured", {
-  skip_if_not_installed("shiny")
-  app <- make_lifecycle_app()
-  spec <- make_lifecycle_spec(app)
-  mock_lifecycle_spec(spec)
+  session <- tempfile("rpackit-missing-runtime-handle-")
+  expect_true(dir.create(session))
+  on.exit(unlink(session, recursive = TRUE, force = TRUE), add = TRUE)
+  process <- new.env(parent = emptyenv())
+  process$is_alive <- function() TRUE
+  handle <- new.env(parent = emptyenv())
+  handle$process <- process
+  handle$pid <- 123L
+  handle$runtime_pid <- NA_integer_
+  handle$runtime_process <- NULL
+  handle$bundle <- "bundle"
+  handle$port <- 54321L
+  handle$token <- "private-session-token-0123456789"
+  handle$launch_headers <- c(
+    `Shiny-Shared-Secret` = handle$token
+  )
+  handle$launch_url <- "http://127.0.0.1:54321/"
+  handle$session_dir <- session
+  handle$stdout_path <- file.path(session, "stdout.log")
+  handle$stderr_path <- file.path(session, "stderr.log")
+  handle$stdout_cache <- character()
+  handle$stderr_cache <- character()
+  handle$events_cache <- list()
+  handle$state <- "starting"
+  listening_event <- list(list(
+    protocol_version = "2",
+    event = "listening",
+    pid = 456L,
+    host = "127.0.0.1",
+    port = handle$port,
+    token_enforced = TRUE
+  ))
   local_mocked_bindings(
+    .desktop_log_events = function(path, lines = NULL) listening_event,
     .desktop_runtime_process = function(pid) NULL,
+    .desktop_terminate_process = function(handle) FALSE,
+    .desktop_process_exit_status = function(process) NA_integer_,
+    .desktop_cache_process_output = function(handle) invisible(handle),
     .package = "rpackit"
   )
 
   error <- tryCatch(
-    start_desktop_app(
-      spec$bundle,
-      timeout = 15,
-      quiet = TRUE
-    ),
+    rpackit:::.desktop_wait_for_ready(handle, timeout = 1),
     rpackit_desktop_start_error = identity
   )
-  handle <- error$process_handle
-  on.exit({
-    if (!is.null(handle)) {
-      try(handle$process$kill_tree(grace = 0), silent = TRUE)
-      try(handle$process$wait(1000L), silent = TRUE)
-      handle$runtime_pid <- NA_integer_
-      rpackit:::.desktop_remove_session(handle)
-    }
-  }, add = TRUE)
 
   expect_s3_class(error, "rpackit_desktop_start_error")
   expect_identical(error$phase, "readiness")
   expect_match(conditionMessage(error), "create-time-aware handle")
   expect_false(error$cleanup_confirmed)
-  expect_s3_class(handle, "rpackit_desktop_process")
-  expect_true(dir.exists(handle$session_dir))
+  expect_identical(error$process_handle, handle)
+  expect_true(dir.exists(session))
 })
 
 test_that("launcher failures are structured and stop the tracked process", {
